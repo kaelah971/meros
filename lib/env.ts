@@ -1,0 +1,55 @@
+// Server-side environment access. Never import this from client components.
+// Intentionally does NOT throw at import time so `next build` passes without
+// credentials. Routes check `isWalrusConfigured()` and return an honest 503.
+
+export const MAINNET_RELAYER_URL = "https://relayer.memory.walrus.xyz";
+
+export function getMemwalServerUrl(): string {
+  const v = process.env.MEMWAL_SERVER_URL?.trim();
+  return v || MAINNET_RELAYER_URL;
+}
+
+export function isMainnetRelayer(url: string): boolean {
+  return url.includes("relayer.memory.walrus.xyz");
+}
+
+export function getMemwalPrivateKey(): string | null {
+  return process.env.MEMWAL_PRIVATE_KEY?.trim() || null;
+}
+
+export function getMemwalAccountId(): string | null {
+  return process.env.MEMWAL_ACCOUNT_ID?.trim() || null;
+}
+
+export function isWalrusConfigured(): boolean {
+  return Boolean(getMemwalPrivateKey() && getMemwalAccountId());
+}
+
+export function walrusBlocker(): {
+  reason: string;
+  needed: string[];
+} {
+  const needed: string[] = [];
+  if (!getMemwalPrivateKey()) needed.push("MEMWAL_PRIVATE_KEY");
+  if (!getMemwalAccountId()) needed.push("MEMWAL_ACCOUNT_ID");
+  return {
+    reason:
+      "Walrus Memory credentials are not configured on the server. " +
+      "Write/recall cannot run without a Mainnet account + delegate key.",
+    needed,
+  };
+}
+
+export function getIdSalt(): string {
+  return process.env.MEROS_ID_SALT?.trim() || "meros-p0-v1";
+}
+
+export function isNeonConfigured(): boolean {
+  return Boolean(process.env.DATABASE_URL?.trim());
+}
+
+export function isGeminiConfigured(): boolean {
+  return Boolean(
+    process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim(),
+  );
+}

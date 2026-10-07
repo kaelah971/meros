@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+.next/
+out/
+
+# Build
+*.tsbuildinfo
+next-env.d.ts
+
+# Env — never commit real credentials
+.env
+.env.local
+.env*.local
+
+# OS / editor
+.DS_Store
+*.log
