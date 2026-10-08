@@ -3,7 +3,9 @@ import { describe, expect, it, afterAll } from "vitest";
 // Better Auth pg Pool below connects to live Neon.
 import { auth } from "../better-auth";
 import {
+  displayIdentity,
   slugifyOrgName,
+  validateDisplayName,
   validateEmail,
   validateOrgName,
   validatePassword,
@@ -26,9 +28,9 @@ const createdOrgIds: string[] = [];
 
 // Full session cookie comes from the signup response's Set-Cookie header
 // (value = token.signature, HttpOnly/SameSite managed by Better Auth).
-async function signupSession(email: string) {
+async function signupSession(email: string, name?: string) {
   const res = (await auth.api.signUpEmail({
-    body: { email, password: PW, name: email.split("@")[0] },
+    body: { email, password: PW, name: name ?? email.split("@")[0] },
     headers: new Headers(),
     asResponse: true,
   })) as unknown as Response;
@@ -40,13 +42,27 @@ async function signupSession(email: string) {
 }
 const withCookie = (cookie: string) => new Headers({ cookie });
 
-async function signupFixture(email: string) {
+async function signupFixture(email: string, name?: string) {
   const res = await auth.api.signUpEmail({
-    body: { email, password: PW, name: email.split("@")[0] },
+    body: { email, password: PW, name: name ?? email.split("@")[0] },
     headers: new Headers(),
   });
   createdEmails.push(email);
   return res as unknown as { token: string; user: { id: string; email: string } };
+}
+
+async function userIdFor(email: string): Promise<string> {
+  const { neon } = await import("@neondatabase/serverless");
+  const { readFileSync } = await import("node:fs");
+  const key = readFileSync(".env.local", "utf8")
+    .split("\n").map((l) => l.trim()).find((l) => l.startsWith("DATABASE_URL="))!
+    .slice("DATABASE_URL=".length);
+  const sql = neon(key);
+  const rows = (await sql`select id from "user" where email = ${email} limit 1`) as unknown as {
+    id: string;
+  }[];
+  if (!rows[0]) throw new Error(`no user row for ${email}`);
+  return rows[0].id;
 }
 
 async function orgFixture(slug: string, name: string, userId: string) {
@@ -104,6 +120,22 @@ describe("auth input validators (pure)", () => {
     expect(() => validateOrgName("x")).toThrow();
     expect(slugifyOrgName("Acme Inc!")).toBe("acme-inc");
   });
+  it("A. display name is required: trims, rejects blank/short", () => {
+    expect(validateDisplayName("  Northstar Admin  ")).toBe("Northstar Admin");
+    expect(() => validateDisplayName("")).toThrow();
+    expect(() => validateDisplayName("   ")).toThrow();
+    expect(() => validateDisplayName("x")).toThrow();
+    expect(() => validateDisplayName(42 as unknown as string)).toThrow();
+  });
+  it("D/E. display name is primary; legacy blank names fall back to email", () => {
+    expect(displayIdentity("Northstar Admin", "edimeneree@gmail.com")).toEqual({
+      primary: "Northstar Admin",
+      secondary: "edimeneree@gmail.com",
+    });
+    expect(displayIdentity("  Northstar Admin  ", "a@b.c").primary).toBe("Northstar Admin");
+    expect(displayIdentity(null, "a@b.c")).toEqual({ primary: "a@b.c", secondary: "a@b.c" });
+    expect(displayIdentity("   ", "a@b.c").primary).toBe("a@b.c");
+  });
 });
 
 describe("Better Auth owner signup/login (live Neon)", () => {
@@ -115,6 +147,30 @@ describe("Better Auth owner signup/login (live Neon)", () => {
     expect(res.token).toBeTruthy();
   }, 60_000);
 
+  it("B+C. signup persists the display name and the session exposes it", async () => {
+    const email = `ba-name-${stamp}@example.test`;
+    const cookie = await signupSession(email, "Northstar Admin");
+    const session = await auth.api.getSession({ headers: withCookie(cookie) });
+    expect(session?.user.email).toBe(email);
+    expect(session?.user.name).toBe("Northstar Admin");
+  }, 60_000);
+  it("F. organization name stays separate from the owner display name", async () => {
+    const email = `ba-org-${stamp}@example.test`;
+    await signupFixture(email, "Org Owner");
+    const user = await userIdFor(email);
+    const orgId = await orgFixture(`org-sep-${stamp}`, "Acme Corporation", user);
+    const { neon } = await import("@neondatabase/serverless");
+    const { readFileSync } = await import("node:fs");
+    const key = readFileSync(".env.local", "utf8")
+      .split("\n").map((l) => l.trim()).find((l) => l.startsWith("DATABASE_URL="))!
+      .slice("DATABASE_URL=".length);
+    const sql = neon(key);
+    const rows = (await sql`select name from organizations where id = ${orgId}`) as unknown as {
+      name: string;
+    }[];
+    expect(rows[0]?.name).toBe("Acme Corporation");
+    expect(rows[0]?.name).not.toBe("Org Owner");
+  }, 60_000);
   it("B. correct password logs in; C. wrong password fails", async () => {
     const email = `ba-b-${stamp}@example.test`;
     await signupFixture(email);

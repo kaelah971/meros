@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { OwnerShell, PageHeader } from "@/components/meros-ui";
+import { displayIdentity } from "@/lib/auth-crypto";
 
 type Org = { organization_id: string; slug: string; name: string; role: string };
 type Ws = { slug: string; name: string; productName: string | null; role: string; supportUrl: string };
@@ -147,7 +148,8 @@ function OrgCard({ org, origin }: { org: Org; origin: string }) {
   );
 }
 
-export function AppHomeClient({ email }: { email: string }) {
+export function AppHomeClient({ email, displayName }: { email: string; displayName: string | null }) {
+  const identity = displayIdentity(displayName, email);
   const router = useRouter();
   const [orgs, setOrgs] = useState<Org[] | null>(null);
   const [error, setError] = useState("");
@@ -207,11 +209,12 @@ export function AppHomeClient({ email }: { email: string }) {
   return (
     <OwnerShell
       email={email}
+      displayName={displayName}
       nav={[{ label: "Organizations", href: "/app" }]}
     >
       <PageHeader
         eyebrow="YOUR ORGANIZATIONS"
-        title={orgs !== null && orgs.length === 0 ? "Build your support memory." : `Good to see you, ${email.split("@")[0]}.`}
+        title={orgs !== null && orgs.length === 0 ? "Build your support memory." : `Good to see you, ${identity.primary}.`}
         lede={
           orgs !== null && orgs.length === 0
             ? "Set up your organization, teach Meros about your product, then share your support workspace."

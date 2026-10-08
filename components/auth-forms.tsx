@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Eyebrow, Field, PageBackdrop, Wordmark, inputClass } from "@/components/meros-ui";
+import { validateDisplayName } from "@/lib/auth-crypto";
 
 function AuthForm({ mode }: { mode: "signup" | "login" }) {
   const router = useRouter();
@@ -20,12 +21,21 @@ function AuthForm({ mode }: { mode: "signup" | "login" }) {
     try {
       // Better Auth email/password (server at /api/auth/[...all]). Same UI,
       // same 10+ char password rule (enforced server-side by Better Auth).
+      if (mode === "signup") {
+        try {
+          validateDisplayName(displayName);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Please enter your name.");
+          setBusy(false);
+          return;
+        }
+      }
       const result =
         mode === "signup"
           ? await authClient.signUp.email({
               email: email.trim(),
               password,
-              name: displayName.trim() || email.trim().split("@")[0],
+              name: validateDisplayName(displayName),
             })
           : await authClient.signIn.email({ email: email.trim(), password });
       if (result.error) {
@@ -114,7 +124,7 @@ function AuthForm({ mode }: { mode: "signup" | "login" }) {
               )}
               <button
                 onClick={() => void submit()}
-                disabled={busy || !email.trim() || !password}
+                disabled={busy || !email.trim() || !password || (mode === "signup" && displayName.trim().length < 2)}
                 className="w-full rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-semibold text-[#030806] transition-colors hover:bg-[#9AFF8D] disabled:opacity-40"
               >
                 {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}

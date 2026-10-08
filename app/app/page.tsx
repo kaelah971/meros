@@ -6,5 +6,5 @@ import { AppHomeClient } from "@/components/app-home";
 export default async function AppPage() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  return <AppHomeClient email={user.email} />;
+  return <AppHomeClient email={user.email} displayName={user.displayName} />;
 }

@@ -17,6 +17,28 @@ export function validatePassword(raw: unknown): string {
   return raw;
 }
 
+export function validateDisplayName(raw: unknown): string {
+  if (typeof raw !== "string") throw new Error("name must be a string");
+  const name = raw.trim().replace(/\s+/g, " ");
+  if (name.length < 2) throw new Error("name must be at least 2 characters");
+  if (name.length > 80) throw new Error("name too long");
+  return name;
+}
+
+/**
+ * Owner identity presentation: the display name is primary, the email is
+ * secondary metadata. Legacy accounts without a stored name fall back to
+ * the email temporarily — never blank, never an ID.
+ */
+export function displayIdentity(
+  displayName: string | null | undefined,
+  email: string,
+): { primary: string; secondary: string } {
+  const name = typeof displayName === "string" ? displayName.trim() : "";
+  if (name) return { primary: name, secondary: email };
+  return { primary: email, secondary: email };
+}
+
 export function validateOrgName(raw: unknown): string {
   if (typeof raw !== "string") throw new Error("organization name must be a string");
   const name = raw.trim().replace(/\s+/g, " ");

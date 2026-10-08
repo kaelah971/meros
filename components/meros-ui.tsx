@@ -1,6 +1,7 @@
 "use client";
 
 import { authClient } from "@/lib/better-auth-client";
+import { displayIdentity } from "@/lib/auth-crypto";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -197,13 +198,16 @@ export function StatCard({
  */
 export function OwnerShell({
   email,
+  displayName,
   nav,
   children,
 }: {
   email: string;
+  displayName: string | null;
   nav: ConsoleNavItem[];
   children: ReactNode;
 }) {
+  const identity = displayIdentity(displayName, email);
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const signOut = async () => {
@@ -221,7 +225,10 @@ export function OwnerShell({
               <Link href="/app" aria-label="Meros organizations home">
                 <Wordmark />
               </Link>
-              <p className="mt-1 truncate text-[11px] text-[#8E9B93]">{email}</p>
+              <p className="mt-1 truncate text-[13px] font-medium text-[#F5F7F5]">
+                {identity.primary}
+              </p>
+              <p className="truncate text-[11px] text-[#8E9B93]">{identity.secondary}</p>
             </div>
             <button
               onClick={() => setOpen((v) => !v)}
@@ -287,6 +294,7 @@ export function ConsoleShell({
   workspaceSlug,
   role,
   email,
+  displayName,
   nav,
   children,
 }: {
@@ -295,9 +303,11 @@ export function ConsoleShell({
   workspaceSlug: string;
   role: string;
   email: string;
+  displayName: string | null;
   nav: ConsoleNavItem[];
   children: ReactNode;
 }) {
+  const identity = displayIdentity(displayName, email);
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const signOut = async () => {
@@ -344,7 +354,8 @@ export function ConsoleShell({
             ))}
           </ul>
           <div className="mt-4 border-t border-[rgba(119,255,117,0.12)] pt-3">
-            <p className="truncate px-3 text-[11px] text-[#8E9B93]">{email}</p>
+            <p className="truncate px-3 text-xs font-medium text-[#F5F7F5]">{identity.primary}</p>
+            <p className="truncate px-3 text-[11px] text-[#8E9B93]">{identity.secondary}</p>
             <p className="px-3 text-[11px] text-[#8E9B93]">
               role: <span className="text-[#9AFF8D]">{role}</span>
             </p>

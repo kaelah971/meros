@@ -40,6 +40,7 @@ export default async function WorkspaceLayout({
         workspaceSlug={ws.slug}
         role={ws.role}
         email={user.email}
+        displayName={user.displayName}
         nav={NAV.map((item) => ({
           ...item,
           href: `/app/workspaces/${ws.slug}${item.href}`,
