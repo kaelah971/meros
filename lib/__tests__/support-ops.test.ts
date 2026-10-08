@@ -183,6 +183,7 @@ describe("message durability (live Neon)", () => {
       model: "gemini-3.5-flash-lite",
       privateUsed: false,
       sharedUsed: true,
+      knowledgeUsed: false,
       provenance: prov,
     });
     const turns = await listRecentTurns(conversation.id, 12);
@@ -225,6 +226,7 @@ describe("message durability (live Neon)", () => {
       model: null,
       privateUsed: false,
       sharedUsed: false,
+      knowledgeUsed: false,
       provenance: [],
     });
     await addUserMessage({ conversationId: conversation.id, content: "q2", clientId: `c4-${stamp}` });
@@ -235,6 +237,7 @@ describe("message durability (live Neon)", () => {
       model: null,
       privateUsed: false,
       sharedUsed: false,
+      knowledgeUsed: false,
       provenance: [],
     });
     expect(await listMessages(conversation.id)).toHaveLength(4);

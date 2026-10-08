@@ -37,6 +37,7 @@ export async function GET(
         memoryUsed: {
           private: m.memory_private_used,
           shared: m.memory_shared_used,
+          knowledge: m.memory_knowledge_used,
         },
         provenance: m.memory_provenance ?? [],
       })),

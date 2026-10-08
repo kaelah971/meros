@@ -35,6 +35,7 @@ create table if not exists organizations (
   id text primary key,               -- sha256-derived, immutable
   slug text not null unique,         -- public routing key (e.g. 'acme')
   name text not null,
+  description text,                  -- short company description (P9 onboarding)
   created_at timestamptz not null default now()
 );
 
@@ -147,6 +148,7 @@ create table if not exists messages (
   model text,
   memory_private_used boolean not null default false,
   memory_shared_used boolean not null default false,
+  memory_knowledge_used boolean not null default false,
   memory_provenance jsonb,
   created_at timestamptz not null default now(),
   -- plain UNIQUE: NULL client_ids never conflict with each other,
@@ -190,3 +192,44 @@ create table if not exists fix_cards (
 
 create index if not exists fix_cards_workspace_idx
   on fix_cards (workspace_id, status, created_at desc);
+
+-- P9 onboarding: optional company description on organizations.
+-- Idempotent: safe to re-run against databases created before P9.
+alter table if exists organizations add column if not exists description text;
+
+-- P9 chat: per-answer knowledge-plane flag for history fidelity.
+-- Idempotent: safe to re-run.
+alter table if exists messages add column if not exists memory_knowledge_used boolean not null default false;
+
+-- P9 workspace product knowledge. Neon is canonical source + metadata
+-- (titles, URLs, statuses, blob refs). Walrus holds ONLY the semantic
+-- retrieval index per workspace knowledge namespace. Raw website text is
+-- never the sole source of truth — canonical_content lives here.
+create table if not exists workspace_knowledge (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id text not null references workspaces(id) on delete cascade,
+  type text not null check (type in ('manual', 'website', 'documentation', 'faq', 'policy')),
+  title text not null,
+  source_url text,
+  canonical_content text not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'ready', 'failed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists workspace_knowledge_ws_idx
+  on workspace_knowledge (workspace_id, created_at desc);
+
+create table if not exists workspace_knowledge_chunks (
+  id uuid primary key default gen_random_uuid(),
+  knowledge_id uuid not null references workspace_knowledge(id) on delete cascade,
+  workspace_id text not null references workspaces(id) on delete cascade,
+  content text not null,
+  position integer not null,
+  walrus_blob_id text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists workspace_knowledge_chunks_kb_idx
+  on workspace_knowledge_chunks (knowledge_id, position);

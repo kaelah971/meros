@@ -26,7 +26,7 @@ export async function GET() {
 
 /** Create an organization; caller becomes its owner. */
 export async function POST(req: Request) {
-  let body: { name?: unknown };
+  let body: { name?: unknown; description?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -36,12 +36,16 @@ export async function POST(req: Request) {
     await requireDb();
     const user = await requireUser();
     const name = validateOrgName(body.name);
+    const description =
+      typeof body.description === "string" && body.description.trim()
+        ? body.description.trim().slice(0, 500)
+        : null;
     // Unique slug: base, then base-2..5. IDs stay deterministic per final slug.
     for (let attempt = 0; attempt < 6; attempt++) {
       const slug = attempt === 0 ? slugifyOrgName(name) : `${slugifyOrgName(name)}-${attempt + 1}`;
       const orgId = organizationIdForSlug(slug);
       try {
-        await createOrganizationWithOwner({ orgId, orgSlug: slug, orgName: name, userId: user.id });
+        await createOrganizationWithOwner({ orgId, orgSlug: slug, orgName: name, userId: user.id, description });
         return NextResponse.json(
           { ok: true, organization: { id: orgId, slug, name, role: "owner" } },
           { status: 201 },

@@ -234,10 +234,16 @@ export function AppHomeClient({ email }: { email: string }) {
         <div className="mt-6 rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-4 py-3">
           <p className="text-sm font-medium text-neutral-100">Welcome — let&apos;s set up your support workspace</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-neutral-400">
-            <li>Create your organization below.</li>
+            <li>Create your organization below, or take the guided setup.</li>
             <li>Inside it, create your first workspace (name, product, URL slug).</li>
             <li>Copy the customer support URL and share it — no demo data needed.</li>
           </ol>
+          <Link
+            href="/app/onboarding"
+            className="mt-3 inline-block rounded-md bg-[#77FF75] px-4 py-2 text-xs font-medium text-neutral-950 hover:bg-emerald-400"
+          >
+            Start guided setup →
+          </Link>
         </div>
       ) : (
         <ul className="mt-4 space-y-3">

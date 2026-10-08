@@ -73,6 +73,13 @@ export function deriveSharedNamespaceV2(workspaceId: string): string {
   return `meros:v2:workspace:${workspaceId}:shared:fixes`;
 }
 
+/** Workspace-scoped product-knowledge namespace. Semantic index of the
+ * organization's own product material — tagged distinctly from support
+ * fixes, isolated per workspace like everything else. */
+export function deriveKnowledgeNamespaceV2(workspaceId: string): string {
+  return `meros:v2:workspace:${workspaceId}:knowledge`;
+}
+
 /** Display name fallback when no DB record exists. Presentation only. */
 export function displayNameForSlug(slug: string): string {
   return slug

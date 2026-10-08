@@ -46,12 +46,13 @@ export type MessageRow = {
   model: string | null;
   memory_private_used: boolean;
   memory_shared_used: boolean;
+  memory_knowledge_used: boolean;
   memory_provenance: ProvenanceItem[] | null;
   created_at: string;
 };
 
 export type ProvenanceItem = {
-  plane: "private" | "shared";
+  plane: "private" | "shared" | "knowledge";
   text: string;
   blobId: string;
   distance: number;
@@ -166,12 +167,13 @@ export async function addAssistantMessage(input: {
   model: string | null;
   privateUsed: boolean;
   sharedUsed: boolean;
+  knowledgeUsed: boolean;
   provenance: ProvenanceItem[];
 }): Promise<string> {
   const sql = await requireSql();
   const rows = (await sql`
-    insert into messages (conversation_id, role, content, model, memory_private_used, memory_shared_used, memory_provenance)
-    values (${input.conversationId}, 'assistant', ${input.content}, ${input.model}, ${input.privateUsed}, ${input.sharedUsed}, ${JSON.stringify(input.provenance)})
+    insert into messages (conversation_id, role, content, model, memory_private_used, memory_shared_used, memory_knowledge_used, memory_provenance)
+    values (${input.conversationId}, 'assistant', ${input.content}, ${input.model}, ${input.privateUsed}, ${input.sharedUsed}, ${input.knowledgeUsed}, ${JSON.stringify(input.provenance)})
     returning id
   `) as unknown as { id: string }[];
   if (!rows[0]) throw new Error("assistant message persist failed");
@@ -200,7 +202,7 @@ export async function listMessages(conversationId: string): Promise<MessageRow[]
   const sql = await requireSql();
   return (await sql`
     select id, conversation_id, client_id, role, content, model,
-           memory_private_used, memory_shared_used, memory_provenance, created_at
+           memory_private_used, memory_shared_used, memory_knowledge_used, memory_provenance, created_at
     from messages where conversation_id = ${conversationId}
     order by created_at, id
   `) as unknown as MessageRow[];

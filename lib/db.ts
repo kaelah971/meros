@@ -115,15 +115,16 @@ export async function createOrganizationWithOwner(input: {
   orgSlug: string;
   orgName: string;
   userId: string;
+  description?: string | null;
 }): Promise<void> {
   const sql = await getSql();
   if (!sql) throw new Error("database unavailable");
   // Best-effort sequential (neon-http has no multi-statement transactions);
   // every step is idempotent so a retry after a partial failure is safe.
   await sql`
-    insert into organizations (id, slug, name)
-    values (${input.orgId}, ${input.orgSlug}, ${input.orgName})
-    on conflict (id) do nothing
+    insert into organizations (id, slug, name, description)
+    values (${input.orgId}, ${input.orgSlug}, ${input.orgName}, ${input.description ?? null})
+    on conflict (id) do update set description = coalesce(excluded.description, organizations.description)
   `;
   await sql`
     insert into organization_members (organization_id, user_id, role)
@@ -320,6 +321,112 @@ export async function ensureAuthCustomer(input: {
     throw new Error("customer identity conflict — refusing to proceed");
   }
   return row;
+}
+
+export type KnowledgeRow = {
+  id: string;
+  workspace_id: string;
+  type: string;
+  title: string;
+  source_url: string | null;
+  canonical_content: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type KnowledgeChunkRow = {
+  id: string;
+  knowledge_id: string;
+  workspace_id: string;
+  content: string;
+  position: number;
+  walrus_blob_id: string | null;
+  created_at: string;
+};
+
+export async function createKnowledgeSource(input: {
+  workspaceId: string;
+  type: string;
+  title: string;
+  sourceUrl: string | null;
+  canonicalContent: string;
+}): Promise<KnowledgeRow> {
+  const sql = await getSql();
+  if (!sql) throw new Error("database unavailable");
+  const rows = (await sql`
+    insert into workspace_knowledge (workspace_id, type, title, source_url, canonical_content, status)
+    values (${input.workspaceId}, ${input.type}, ${input.title}, ${input.sourceUrl}, ${input.canonicalContent}, 'pending')
+    returning id, workspace_id, type, title, source_url, canonical_content, status, created_at, updated_at
+  `) as unknown as KnowledgeRow[];
+  const row = rows[0];
+  if (!row) throw new Error("knowledge insert failed");
+  return row;
+}
+
+export async function listKnowledgeSources(workspaceId: string): Promise<KnowledgeRow[]> {
+  const sql = await getSql();
+  if (!sql) return [];
+  return (await sql`
+    select id, workspace_id, type, title, source_url, canonical_content, status, created_at, updated_at
+    from workspace_knowledge where workspace_id = ${workspaceId} order by created_at desc
+  `) as unknown as KnowledgeRow[];
+}
+
+export async function getKnowledgeSource(id: string, workspaceId: string): Promise<KnowledgeRow | null> {
+  const sql = await getSql();
+  if (!sql) return null;
+  const rows = (await sql`
+    select id, workspace_id, type, title, source_url, canonical_content, status, created_at, updated_at
+    from workspace_knowledge where id = ${id} and workspace_id = ${workspaceId} limit 1
+  `) as unknown as KnowledgeRow[];
+  return rows[0] ?? null;
+}
+
+export async function updateKnowledgeSource(
+  id: string,
+  workspaceId: string,
+  patch: { title?: string; canonicalContent?: string; status?: string },
+): Promise<KnowledgeRow | null> {
+  const sql = await getSql();
+  if (!sql) throw new Error("database unavailable");
+  const rows = (await sql`
+    update workspace_knowledge
+    set title = coalesce(${patch.title ?? null}, title),
+        canonical_content = coalesce(${patch.canonicalContent ?? null}, canonical_content),
+        status = coalesce(${patch.status ?? null}, status),
+        updated_at = now()
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, workspace_id, type, title, source_url, canonical_content, status, created_at, updated_at
+  `) as unknown as KnowledgeRow[];
+  return rows[0] ?? null;
+}
+
+export async function deleteKnowledgeSource(id: string, workspaceId: string): Promise<boolean> {
+  const sql = await getSql();
+  if (!sql) throw new Error("database unavailable");
+  // Chunk rows cascade; Walrus blobs are content-addressed and simply
+  // become unreferenced (no global enumeration to clean them).
+  const rows = (await sql`
+    delete from workspace_knowledge where id = ${id} and workspace_id = ${workspaceId} returning id
+  `) as unknown as { id: string }[];
+  return rows.length > 0;
+}
+
+export async function replaceKnowledgeChunks(input: {
+  knowledgeId: string;
+  workspaceId: string;
+  chunks: { content: string; position: number; blobId: string | null }[];
+}): Promise<void> {
+  const sql = await getSql();
+  if (!sql) throw new Error("database unavailable");
+  await sql`delete from workspace_knowledge_chunks where knowledge_id = ${input.knowledgeId}`;
+  for (const c of input.chunks) {
+    await sql`
+      insert into workspace_knowledge_chunks (knowledge_id, workspace_id, content, position, walrus_blob_id)
+      values (${input.knowledgeId}, ${input.workspaceId}, ${c.content}, ${c.position}, ${c.blobId})
+    `;
+  }
 }
 
 export function hashAccessCodeForDb(normalizedCode: string, salt: string): string {

@@ -8,7 +8,7 @@ import { authClient } from "@/lib/better-auth-client";
 import { PageBackdrop } from "@/components/meros-ui";
 
 type ProvenanceItem = {
-  plane: "private" | "shared";
+  plane: "private" | "shared" | "knowledge";
   text: string;
   blobId: string;
   distance: number;
@@ -20,7 +20,7 @@ type Msg =
       kind: "assistant";
       text: string;
       provenance: ProvenanceItem[];
-      memoryUsed: { private: boolean; shared: boolean };
+      memoryUsed: { private: boolean; shared: boolean; knowledge?: boolean };
       historyTurns: number;
       captureNote?: string;
       degradedMemory?: boolean;
@@ -90,7 +90,8 @@ function MemoryLens({
   const [open, setOpen] = useState(false);
   const priv = msg.provenance.filter((p) => p.plane === "private");
   const shared = msg.provenance.filter((p) => p.plane === "shared");
-  const noneUsed = priv.length === 0 && shared.length === 0;
+  const know = msg.provenance.filter((p) => p.plane === "knowledge");
+  const noneUsed = priv.length === 0 && shared.length === 0 && know.length === 0;
   return (
     <div className="mt-2 rounded-md border border-[rgba(119,255,117,0.14)] bg-[#06100B]/60">
       <button
@@ -102,7 +103,11 @@ function MemoryLens({
           <span className="ml-2">
             {noneUsed
               ? "No relevant memory found"
-              : `${priv.length > 0 ? "Your private memory" : ""}${priv.length > 0 && shared.length > 0 ? " · " : ""}${shared.length > 0 ? "Shared support memory" : ""}`}
+              : [
+                  priv.length > 0 ? "Your private memory" : "",
+                  shared.length > 0 ? "Shared support memory" : "",
+                  know.length > 0 ? "Product knowledge" : "",
+                ].filter(Boolean).join(" · ")}
           </span>
         </span>
         <span aria-hidden>{open ? "▾" : "▸"}</span>
@@ -150,6 +155,26 @@ function MemoryLens({
             )}
           </div>
           <div>
+            <p className="font-medium text-lime-300">Product knowledge</p>
+            {know.length === 0 ? (
+              <p className="mt-1 text-neutral-500">Not used for this answer.</p>
+            ) : (
+              <ul className="mt-1 space-y-1.5">
+                {know.map((p) => (
+                  <li key={p.blobId} className="text-neutral-300">
+                    <span className="text-neutral-100">{p.text}</span>
+                    <details className="mt-0.5">
+                      <summary className="cursor-pointer font-mono text-[11px] text-neutral-500 hover:text-neutral-300">storage proof</summary>
+                      <span className="block font-mono text-[11px] text-neutral-500">
+                        blob {shortBlob(p.blobId)} · relevance {p.distance.toFixed(3)}
+                      </span>
+                    </details>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
             <p className="font-medium text-neutral-300">Current conversation</p>
             <p className="mt-1 text-neutral-500">
               {historyTurns > 0
@@ -181,9 +206,11 @@ function CompareCard({
 }) {
   const priv = original.provenance.filter((p) => p.plane === "private");
   const shared = original.provenance.filter((p) => p.plane === "shared");
+  const know = original.provenance.filter((p) => p.plane === "knowledge");
   const used: string[] = [];
   if (priv.length > 0) used.push("private memory");
   if (shared.length > 0) used.push("shared support memory");
+  if (know.length > 0) used.push("product knowledge");
   return (
     <div className="mt-2 overflow-hidden rounded-md border border-[rgba(119,255,117,0.25)]">
       <p className="bg-[rgba(10,27,18,0.9)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-neutral-300">
@@ -208,7 +235,8 @@ function CompareCard({
         <p className="font-medium text-neutral-300">Why this mattered</p>
         <p className="mt-0.5">
           Private memory: {priv.length > 0 ? `used (${priv.length})` : "not used"} · Shared memory:{" "}
-          {shared.length > 0 ? `used (${shared.length})` : "not used"} · Baseline: no long-term memory.
+          {shared.length > 0 ? `used (${shared.length})` : "not used"} · Product knowledge:{" "}
+          {know.length > 0 ? `used (${know.length})` : "not used"} · Baseline: no long-term memory.
         </p>
         {shared.length > 0 && (
           <ul className="mt-1 space-y-0.5">
@@ -297,6 +325,7 @@ export function SupportChat({
     { id: string; title: string; status: string; lastMessageAt: string | null }[] | null
   >(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const scrollDown = () => {
@@ -360,7 +389,12 @@ export function SupportChat({
         },
       ]);
       scrollDown();
-      if (data.conversation?.id) setConversationId(data.conversation.id);
+      if (data.conversation?.id) {
+        if (!conversationId || conversationId !== data.conversation.id) {
+          setConversationId(data.conversation.id);
+          void loadHistoryList();
+        }
+      }
       // Resolution confirmed: the fix (if any) is already pending staff
       // review server-side. The customer only gets this receipt — never
       // shared-memory controls.
@@ -483,6 +517,12 @@ export function SupportChat({
     }
   }, [conversationId, resolving, identityBody]);
 
+  // Sidebar needs sessions on mount; drawer lazy-loads on open.
+  useEffect(() => {
+    if (started && historyList === null) void loadHistoryList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started]);
+
   const loadHistoryList = useCallback(async () => {
     try {
       const res = await fetch(
@@ -512,7 +552,7 @@ export function SupportChat({
           (m: {
             role: string;
             text: string;
-            memoryUsed?: { private: boolean; shared: boolean };
+            memoryUsed?: { private: boolean; shared: boolean; knowledge?: boolean };
             provenance?: ProvenanceItem[];
           }) => {
             const prior = turns.map((t) => ({ ...t }));
@@ -617,9 +657,105 @@ export function SupportChat({
     );
   }
 
+  const visibleHistory = (historyList ?? []).filter((c) =>
+    c.title.toLowerCase().includes(historyFilter.trim().toLowerCase()),
+  );
+
+  const historyPanel = (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-display text-[11px] tracking-[0.25em] text-[#4CA862]">SESSIONS</p>
+        <button
+          onClick={newConversation}
+          title="Start a new conversation thread"
+          className="rounded-md bg-[#77FF75] px-3 py-1.5 text-xs font-medium text-neutral-950 hover:bg-emerald-400"
+        >
+          + New
+        </button>
+      </div>
+      <input
+        value={historyFilter}
+        onChange={(e) => setHistoryFilter(e.target.value)}
+        placeholder="Filter conversations…"
+        aria-label="Filter conversations"
+        className="mt-2 w-full rounded-md border border-[rgba(119,255,117,0.25)] bg-[#06100B] px-3 py-2 text-xs outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
+      />
+      <div className="mt-2">
+        <p className="text-xs font-medium text-neutral-200">Previous conversations</p>
+        {historyList === null ? (
+          <p className="mt-1 text-[11px] text-neutral-500">Loading…</p>
+        ) : visibleHistory.length === 0 ? (
+          <p className="mt-1 text-[11px] text-neutral-500">
+            {historyList.length === 0 ? "No previous conversations yet." : "No matches."}
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {visibleHistory.map((c) => (
+              <li key={c.id}>
+                <button
+                  onClick={() => {
+                    void openConversation(c.id);
+                    setShowHistory(false);
+                  }}
+                  aria-current={c.id === conversationId ? "true" : undefined}
+                  className={`w-full rounded-md border px-3 py-2 text-left ${
+                    c.id === conversationId
+                      ? "border-[rgba(119,255,117,0.5)] bg-[rgba(119,255,117,0.08)]"
+                      : "border-[rgba(119,255,117,0.14)] bg-[#06100B] hover:border-[rgba(119,255,117,0.5)]"
+                  }`}
+                >
+                  <span className="block truncate text-xs text-neutral-100">{c.title}</span>
+                  <span className="mt-0.5 block font-mono text-[10px] text-neutral-500">
+                    {c.status}{c.lastMessageAt ? ` · ${new Date(c.lastMessageAt).toLocaleString()}` : ""}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="mt-3 border-t border-[rgba(119,255,117,0.14)] pt-3">
+        <p className="truncate text-[11px] text-neutral-500">
+          {isAuth && sessionEmail ? `Signed in as ${sessionEmail}` : "Customer session"}
+        </p>
+        {isAuth && (
+          <button
+            onClick={() => void signOutHere()}
+            className="mt-2 w-full rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
+          >
+            Sign out
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <main className="relative mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-6">
+    <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 md:flex-row md:gap-6">
       <PageBackdrop />
+      <aside className="mb-4 hidden w-72 shrink-0 md:mb-0 md:block" aria-label="Conversation sessions">
+        <p className="truncate text-sm text-neutral-300">{workspaceName ? `${workspaceName} Support` : "Support"}</p>
+        <div className="mt-3">{historyPanel}</div>
+      </aside>
+      {showHistory && (
+        <div className="fixed inset-0 z-30 md:hidden" role="dialog" aria-modal="true" aria-label="Conversation sessions">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setShowHistory(false)} />
+          <div className="absolute inset-y-0 left-0 w-80 max-w-[85vw] overflow-y-auto border-r border-[rgba(119,255,117,0.2)] bg-[#06100B] p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="truncate text-sm text-neutral-300">{workspaceName ? `${workspaceName} Support` : "Support"}</p>
+              <button
+                onClick={() => setShowHistory(false)}
+                aria-label="Close conversation list"
+                className="rounded-md border border-[rgba(119,255,117,0.25)] px-2.5 py-1.5 text-xs text-neutral-300"
+              >
+                ✕
+              </button>
+            </div>
+            {historyPanel}
+          </div>
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
       <header className="relative flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(119,255,117,0.14)] pb-3">
         <div className="min-w-0">
           <p className="font-display text-sm font-bold tracking-[0.18em] text-[#9AFF8D]">MEROS</p>
@@ -639,13 +775,14 @@ export function SupportChat({
           </button>
           <button
             onClick={() => {
-              setShowHistory((v) => !v);
+              setShowHistory(true);
               if (historyList === null) void loadHistoryList();
             }}
             title="Your previous support conversations"
-            className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
+            aria-label="Open conversation list"
+            className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)] md:hidden"
           >
-            History
+            ☰ Sessions
           </button>
           <button
             onClick={newConversation}
@@ -654,15 +791,6 @@ export function SupportChat({
           >
             New conversation
           </button>
-          {isAuth ? (
-            <button
-              onClick={() => void signOutHere()}
-              title="Sign out of this support session"
-              className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
-            >
-              Sign out
-            </button>
-          ) : null}
           {!lockWorkspace && (
             <button
               onClick={switchWorkspace}
@@ -703,7 +831,7 @@ export function SupportChat({
                 <Markdown text={m.text} />
               </div>
               <MemoryLens msg={m} historyTurns={m.historyTurns} />
-              {(m.memoryUsed.private || m.memoryUsed.shared) && !m.compare && (
+              {(m.memoryUsed.private || m.memoryUsed.shared || m.memoryUsed.knowledge) && !m.compare && (
                 <button
                   onClick={() => void runCompare(i)}
                   className="mt-1.5 rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-[11px] text-neutral-300 hover:border-[rgba(119,255,117,0.5)] hover:text-[#9AFF8D]"
@@ -728,32 +856,6 @@ export function SupportChat({
               )}
             </div>
           ),
-        )}
-        {showHistory && (
-          <div className="rounded-lg border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-4 py-3">
-            <p className="text-xs font-medium text-neutral-200">Previous conversations</p>
-            {historyList === null ? (
-              <p className="mt-1 text-[11px] text-neutral-500">Loading…</p>
-            ) : historyList.length === 0 ? (
-              <p className="mt-1 text-[11px] text-neutral-500">No previous conversations yet.</p>
-            ) : (
-              <ul className="mt-2 space-y-1.5">
-                {historyList.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      onClick={() => void openConversation(c.id)}
-                      className="w-full rounded-md border border-[rgba(119,255,117,0.14)] bg-[#06100B] px-3 py-2 text-left hover:border-[rgba(119,255,117,0.5)]"
-                    >
-                      <span className="block truncate text-xs text-neutral-100">{c.title}</span>
-                      <span className="mt-0.5 block font-mono text-[10px] text-neutral-500">
-                        {c.status}{c.lastMessageAt ? ` · ${new Date(c.lastMessageAt).toLocaleString()}` : ""}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         )}
         {resolvedCard && (
           <div className="rounded-lg border border-emerald-900 bg-[rgba(10,27,18,0.72)] px-4 py-3">
@@ -782,7 +884,7 @@ export function SupportChat({
         <div ref={bottomRef} />
       </div>
 
-      <div className="sticky bottom-0 border-t border-[rgba(119,255,117,0.14)] bg-[#06100B] py-3">
+      <div className="sticky bottom-0 border-t border-[rgba(119,255,117,0.14)] bg-[#06100B]/95 backdrop-blur py-3">
         <div className="flex gap-2">
           <input
             value={draft}
@@ -802,9 +904,10 @@ export function SupportChat({
             disabled={sending || !draft.trim()}
             className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-[#030806] disabled:opacity-40 hover:bg-[#9AFF8D]"
           >
-            Send
+            {sending ? "Sending…" : "Send"}
           </button>
         </div>
+      </div>
       </div>
     </main>
   );

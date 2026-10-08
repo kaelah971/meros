@@ -27,7 +27,7 @@ export type EvidenceEvent =
       question: string;
       privateUsed: boolean;
       sharedUsed: boolean;
-      snippets: { plane: "private" | "shared"; text: string; blobId: string; distance: number }[];
+      snippets: { plane: "private" | "shared" | "knowledge"; text: string; blobId: string; distance: number }[];
       baselineChars: number;
     };
 

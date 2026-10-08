@@ -10,6 +10,7 @@ const NAV: ConsoleNavItem[] = [
   { label: "Customers", href: "/customers" },
   { label: "Fix Cards", href: "/fix-cards" },
   { label: "Shared memory", href: "/shared" },
+  { label: "Knowledge", href: "/knowledge" },
 ];
 
 /**

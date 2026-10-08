@@ -24,12 +24,13 @@ import {
   type FixCardRow,
 } from "@/lib/support-ops";
 import { CHAT_RECALL_TIMEOUT_MS, recallBounded } from "@/lib/walrus";
+import { deriveKnowledgeNamespaceV2 } from "@/lib/tenant";
 import { isWalrusConfigured, walrusBlocker } from "@/lib/env";
 
 const MAX_HISTORY_TURNS = 12;
 
 export type ProvenanceItem = {
-  plane: "private" | "shared";
+  plane: "private" | "shared" | "knowledge";
   text: string;
   blobId: string;
   distance: number;
@@ -146,7 +147,7 @@ export async function POST(req: Request) {
     );
   }
   console.log(`[chat] recall start (timeout ${CHAT_RECALL_TIMEOUT_MS}ms/plane)`);
-  const [p, s] = await Promise.all([
+  const [p, s, k] = await Promise.all([
     recallBounded(tenant.privateNamespace, recallQuery, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE })
       .then((r) => {
         console.log(`[chat] recall private ${r.status} in ${r.durationMs}ms (${r.total} hits)`);
@@ -157,16 +158,22 @@ export async function POST(req: Request) {
         console.log(`[chat] recall shared ${r.status} in ${r.durationMs}ms (${r.total} hits)`);
         return r;
       }),
+    recallBounded(deriveKnowledgeNamespaceV2(tenant.workspaceId), recallQuery, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE })
+      .then((r) => {
+        console.log(`[chat] recall knowledge ${r.status} in ${r.durationMs}ms (${r.total} hits)`);
+        return r;
+      }),
   ]);
   const privateHits = p.results;
   const sharedHits = s.results;
-  const memoryStatus = { private: p.status, shared: s.status } as const;
-  const degradedMemory = p.status !== "ok" || s.status !== "ok";
+  const knowledgeHits = k.results;
+  const memoryStatus = { private: p.status, shared: s.status, knowledge: k.status } as const;
+  const degradedMemory = p.status !== "ok" || s.status !== "ok" || k.status !== "ok";
   if (degradedMemory) {
-    console.log(`[chat] recall degraded (private=${p.status} shared=${s.status}) — answering with available context`);
+    console.log(`[chat] recall degraded (private=${p.status} shared=${s.status} knowledge=${k.status}) — answering with available context`);
   }
 
-  const used: MemoryItem[] = normalizeMemories(privateHits, sharedHits);
+  const used: MemoryItem[] = normalizeMemories(privateHits, sharedHits, knowledgeHits);
 
   let answer: string;
   try {
@@ -209,6 +216,7 @@ export async function POST(req: Request) {
       model: getPrimaryModel(),
       privateUsed: used.some((m) => m.plane === "private"),
       sharedUsed: used.some((m) => m.plane === "shared"),
+      knowledgeUsed: used.some((m) => m.plane === "knowledge"),
       provenance,
     });
   } catch (e) {
@@ -253,7 +261,7 @@ export async function POST(req: Request) {
     }
   }
 
-  console.log(`[chat] done (private=${p.status} shared=${s.status} provenance=${provenance.length})`);
+  console.log(`[chat] done (private=${p.status} shared=${s.status} knowledge=${k.status} provenance=${provenance.length})`);
   return NextResponse.json({
     ok: true,
     answer,
@@ -265,6 +273,7 @@ export async function POST(req: Request) {
     memoryUsed: {
       private: used.some((m) => m.plane === "private"),
       shared: used.some((m) => m.plane === "shared"),
+      knowledge: used.some((m) => m.plane === "knowledge"),
     },
     provenance,
     historyTurns: history.length,

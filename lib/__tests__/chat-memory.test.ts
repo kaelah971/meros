@@ -42,7 +42,7 @@ describe("normalizeMemories", () => {
     const many = Array.from({ length: 20 }, (_, i) =>
       hit({ text: `fact number ${i}`, blobId: `b${i}`, distance: 0.1 + i * 0.01 }),
     );
-    expect(normalizeMemories(many, [], { maxItems: 6 })).toHaveLength(6);
+    expect(normalizeMemories(many, [], [], { maxItems: 6 })).toHaveLength(6);
   });
 
   it("empty planes yield empty list (shared-empty path)", () => {
