@@ -209,6 +209,16 @@ export type WorkspaceRow = {
   support_context: string | null;
 };
 
+export async function getWorkspaceById(id: string): Promise<WorkspaceRow | null> {
+  const sql = await getSql();
+  if (!sql) return null;
+  const rows = (await sql`
+    select id, organization_id, slug, name, product_name, product_description, support_context
+    from workspaces where id = ${id} limit 1
+  `) as unknown as WorkspaceRow[];
+  return rows[0] ?? null;
+}
+
 export async function getWorkspaceBySlug(slug: string): Promise<WorkspaceRow | null> {
   const sql = await getSql();
   if (!sql) return null;

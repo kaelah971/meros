@@ -117,3 +117,76 @@ create index "session_userId_idx" on "session" ("userId");
 create index "account_userId_idx" on "account" ("userId");
 
 create index "verification_identifier_idx" on "verification" ("identifier");
+
+-- Meros P8 persistent support operations. Neon is product state ONLY:
+-- conversations, messages, issues, and Fix Card metadata live here.
+-- Walrus remains the long-term AI memory store; provenance blobs stored
+-- below are references, never memory content mirrors.
+
+create table if not exists conversations (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id text not null references workspaces(id) on delete cascade,
+  customer_id text not null references customers(id) on delete cascade,
+  status text not null default 'open' check (status in ('open', 'resolved')),
+  title text not null default 'Support conversation',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  last_message_at timestamptz,
+  resolved_at timestamptz
+);
+
+create index if not exists conversations_customer_idx
+  on conversations (workspace_id, customer_id, last_message_at desc nulls last, created_at desc);
+
+create table if not exists messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references conversations(id) on delete cascade,
+  client_id text,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null,
+  model text,
+  memory_private_used boolean not null default false,
+  memory_shared_used boolean not null default false,
+  memory_provenance jsonb,
+  created_at timestamptz not null default now(),
+  -- plain UNIQUE: NULL client_ids never conflict with each other,
+  -- while real client ids dedupe retried sends per conversation.
+  unique (conversation_id, client_id)
+);
+
+create index if not exists messages_conversation_idx
+  on messages (conversation_id, created_at, id);
+
+create table if not exists support_issues (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id text not null references workspaces(id) on delete cascade,
+  customer_id text not null references customers(id) on delete cascade,
+  conversation_id uuid not null unique references conversations(id) on delete cascade,
+  status text not null default 'open' check (status in ('open', 'resolved')),
+  title text not null default 'Support issue',
+  resolution_summary text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create index if not exists support_issues_workspace_idx
+  on support_issues (workspace_id, status, updated_at desc);
+
+create table if not exists fix_cards (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id text not null references workspaces(id) on delete cascade,
+  customer_id text not null references customers(id) on delete cascade,
+  conversation_id uuid references conversations(id) on delete cascade,
+  issue_id uuid references support_issues(id) on delete set null,
+  candidate_text text not null,
+  status text not null default 'pending_review'
+    check (status in ('pending_review', 'shared', 'kept_private', 'failed')),
+  walrus_blob_id text,
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by_user_id text references "user"(id) on delete set null
+);
+
+create index if not exists fix_cards_workspace_idx
+  on fix_cards (workspace_id, status, created_at desc);

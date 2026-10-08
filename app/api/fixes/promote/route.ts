@@ -3,12 +3,15 @@ import { previewUserId } from "@/lib/identity";
 import { validateSharedCandidate } from "@/lib/support-memory";
 import { identityError, resolveProductIdentity } from "@/lib/product-identity";
 import type { AuthenticatedCustomer } from "@/lib/tenant-store";
+import { requireUser } from "@/lib/auth";
+import { requireStaff } from "@/lib/support-ops";
 import { WalrusNotConfiguredError, rememberInNamespace } from "@/lib/walrus";
 
 /**
- * Human promotion gate exit. Writes the REVIEWED candidate to the shared
- * fixes namespace ONLY after explicit Save shared. The shared namespace is
- * derived server-side — the client can never supply it.
+ * STAFF-ONLY shared-memory write. Customers must use the Fix Card review
+ * queue (staff approve via /api/fix-cards/[id]/review); direct customer
+ * promotion returns 403. The shared namespace is derived server-side —
+ * the client can never supply it.
  */
 export async function POST(req: Request) {
   // NOTE: P7 product flow uses session auth (legacy access-code path is dev-only).
@@ -20,10 +23,14 @@ export async function POST(req: Request) {
   }
 
   // The CURRENT workspace is resolved server-side: the client can never
-  // choose which workspace receives the Fix Card.
+  // choose which workspace receives the Fix Card. Product identity still
+  // resolves the workspace, but only org staff may write shared memory.
   let tenant: AuthenticatedCustomer;
   try {
     tenant = await resolveProductIdentity(body);
+    const user = await requireUser();
+    // requireStaff throws 403 for non-members; identityError passes it through.
+    await requireStaff(user.id, tenant.workspaceId);
   } catch (e) {
     const err = identityError(e);
     return NextResponse.json({ ok: false, error: err.message }, { status: err.status });

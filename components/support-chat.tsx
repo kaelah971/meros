@@ -79,16 +79,6 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
-type FixState =
-  | { status: "preparing" }
-  | { status: "ready"; candidate: string }
-  | { status: "none" }
-  | { status: "saving"; candidate: string }
-  | { status: "stored"; candidate: string; blobId: string }
-  | { status: "kept-private" }
-  | { status: "failed"; error: string };
-
-
 function MemoryLens({
   msg,
   historyTurns,
@@ -267,135 +257,9 @@ async function captureTurn(
   }
 }
 
-function FixCard({
-  workspaceSlug,
-  history,
-  onClose,
-}: {
-  workspaceSlug: string;
-  history: { role: "user" | "assistant"; text: string }[];
-  onClose: () => void;
-}) {
-  const [state, setState] = useState<FixState>({ status: "preparing" });
-
-  const load = useCallback(async () => {
-    setState({ status: "preparing" });
-    try {
-      const res = await fetch("/api/fixes/candidate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspaceSlug, history }),
-      });
-      const data = await res.json();
-      if (data.ok && data.candidate) {
-        setState({ status: "ready", candidate: data.candidate });
-      } else if (data.ok) {
-        setState({ status: "none" });
-      } else {
-        setState({ status: "failed", error: data.blocked ?? data.error ?? "Could not prepare a fix." });
-      }
-    } catch (e) {
-      setState({ status: "failed", error: e instanceof Error ? e.message : "Network error." });
-    }
-  }, [workspaceSlug, history]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const saveShared = async (candidate: string) => {
-    setState({ status: "saving", candidate });
-    try {
-      const res = await fetch("/api/fixes/promote", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspaceSlug, candidate }),
-      });
-      const data = await res.json();
-      if (data.ok && data.status === "stored") {
-        recordEvidence({ kind: "shared-write", workspace: workspaceSlug, text: candidate, blobId: data.blobId });
-        setState({ status: "stored", candidate, blobId: data.blobId });
-      } else {
-        setState({ status: "failed", error: data.error ?? "Shared save failed." });
-      }
-    } catch (e) {
-      setState({ status: "failed", error: e instanceof Error ? e.message : "Network error." });
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-emerald-900 bg-neutral-900 px-4 py-3">
-      <p className="text-sm font-medium text-neutral-100">Turn this resolution into shared support memory?</p>
-      <p className="mt-1 text-xs text-neutral-400">
-        Only the reusable fix will be shared. Your private context stays private.
-      </p>
-      {state.status === "preparing" && (
-        <p className="mt-3 text-xs text-neutral-500">Preparing sanitized preview…</p>
-      )}
-      {(state.status === "ready" || state.status === "saving") && (
-        <div className="mt-3">
-          <pre className="whitespace-pre-wrap rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-xs leading-5 text-neutral-200">
-            {state.candidate}
-          </pre>
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={() => void saveShared(state.candidate)}
-              disabled={state.status === "saving"}
-              className="rounded-md bg-emerald-500 px-4 py-2 text-xs font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
-            >
-              {state.status === "saving" ? "Saving to shared memory…" : "Save shared"}
-            </button>
-            <button
-              onClick={() => setState({ status: "kept-private" })}
-              disabled={state.status === "saving"}
-              className="rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500"
-            >
-              Keep private
-            </button>
-          </div>
-        </div>
-      )}
-      {state.status === "stored" && (
-        <div className="mt-3">
-          <p className="text-xs font-medium text-emerald-400">Stored in shared support memory.</p>
-          <p className="mt-1 break-all font-mono text-[11px] text-neutral-400">blob {state.blobId}</p>
-          <button onClick={onClose} className="mt-3 rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
-            Back to chat
-          </button>
-        </div>
-      )}
-      {state.status === "kept-private" && (
-        <div className="mt-3">
-          <p className="text-xs text-neutral-300">Kept private — nothing was written to shared memory.</p>
-          <button onClick={onClose} className="mt-3 rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
-            Back to chat
-          </button>
-        </div>
-      )}
-      {state.status === "none" && (
-        <div className="mt-3">
-          <p className="text-xs text-neutral-300">No reusable fix found in this conversation — nothing to share.</p>
-          <button onClick={onClose} className="mt-3 rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
-            Back to chat
-          </button>
-        </div>
-      )}
-      {state.status === "failed" && (
-        <div className="mt-3">
-          <p className="text-xs text-red-300">{state.error}</p>
-          <div className="mt-3 flex gap-2">
-            <button onClick={() => void load()} className="rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
-              Retry
-            </button>
-            <button onClick={onClose} className="rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+// NOTE: the customer-facing FixCard approval UI (Save shared / Keep
+// private) was removed in P8. Customers only ever see the pending-review
+// receipt rendered inline above; organization staff review in the console.
 
 export function SupportChat({
   initialWorkspaceSlug = "",
@@ -419,7 +283,13 @@ export function SupportChat({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [fixOpen, setFixOpen] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [resolvedCard, setResolvedCard] = useState<{ candidateText?: string } | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [historyList, setHistoryList] = useState<
+    { id: string; title: string; status: string; lastMessageAt: string | null }[] | null
+  >(null);
+  const [showHistory, setShowHistory] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const scrollDown = () => {
@@ -428,25 +298,6 @@ export function SupportChat({
     );
   };
 
-  const transcriptForFix = useCallback(() =>
-    messages.flatMap((m): { role: "user" | "assistant"; text: string }[] =>
-      m.kind === "user"
-        ? [{ role: "user", text: m.text }]
-        : [{ role: "assistant", text: m.text }],
-    ), [messages]);
-
-  const [fixHistory, setFixHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
-
-  // Accepts an explicit snapshot: the auto-open path in send() must pass the
-  // fresh transcript (user confirmation + latest answer), because the
-  // `messages` closure there predates this turn's setMessages calls. Without
-  // this, the candidate endpoint never sees the confirmation turn and
-  // correctly-but-uselessly reports "no reusable fix found".
-  const openFixCard = useCallback((snapshot?: { role: "user" | "assistant"; text: string }[]) => {
-    setFixHistory(snapshot ?? transcriptForFix());
-    setFixOpen(true);
-    scrollDown();
-  }, [transcriptForFix]);
 
   const canStart = workspaceSlug.trim().length >= 2;
 
@@ -459,11 +310,18 @@ export function SupportChat({
     if (!text || sending || !workspaceSlug.trim()) return;
     setSending(true);
     setError("");
+    setResolvedCard(null);
     const history = messages.flatMap((m): { role: "user" | "assistant"; text: string }[] =>
       m.kind === "user"
         ? [{ role: "user", text: m.text }]
         : [{ role: "assistant", text: m.text }],
     );
+    // Idempotency key for this turn: a retried send resumes the same
+    // persisted user message instead of duplicating it.
+    const clientMessageId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setMessages((prev) => [...prev, { kind: "user", text }]);
     setDraft("");
     scrollDown();
@@ -471,7 +329,9 @@ export function SupportChat({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(identityBody({ message: text, history })),
+        body: JSON.stringify(
+          identityBody({ message: text, history, conversationId, clientMessageId }),
+        ),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -493,12 +353,14 @@ export function SupportChat({
         },
       ]);
       scrollDown();
+      if (data.conversation?.id) setConversationId(data.conversation.id);
+      // Resolution confirmed: the fix (if any) is already pending staff
+      // review server-side. The customer only gets this receipt — never
+      // shared-memory controls.
       if (data.resolutionDetected === true) {
-        openFixCard([
-          ...history,
-          { role: "user", text },
-          { role: "assistant", text: data.answer },
-        ]);
+        setResolvedCard({
+          candidateText: data.fixCard?.candidateText,
+        });
       }
       // Explicit capture runs AFTER the answer renders (non-blocking for
       // chat latency). The capture endpoint still awaits real Walrus
@@ -517,7 +379,7 @@ export function SupportChat({
     } finally {
       setSending(false);
     }
-  }, [draft, sending, workspaceSlug, messages, openFixCard, identityBody]);
+  }, [draft, sending, workspaceSlug, messages, conversationId, identityBody]);
 
   const runCompare = useCallback(async (idx: number) => {
     // Controlled rerun: same user message + same conversation context, but
@@ -578,14 +440,103 @@ export function SupportChat({
   }, [messages, workspaceSlug, identityBody]);
 
   const newConversation = useCallback(() => {
-    // Same user, fresh thread. Long-term memory stays in Walrus under the
-    // same server-derived namespace — cross-session proof must come from
+    // Same user, fresh persistent thread (created server-side on next
+    // send). Long-term memory stays in Walrus under the same
+    // server-derived namespace — cross-session proof must come from
     // recall, never from this local transcript.
     setMessages([]);
     setError("");
     setDraft("");
-    setFixOpen(false);
+    setConversationId(null);
+    setResolvedCard(null);
   }, []);
+
+  // Explicit customer resolution for the CURRENT persistent thread.
+  const markResolved = useCallback(async () => {
+    if (!conversationId || resolving) return;
+    setResolving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/resolve`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(identityBody({})),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setError(data.error ?? "Could not mark resolved.");
+        return;
+      }
+      setResolvedCard({ candidateText: data.fixCard?.candidateText });
+      scrollDown();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Network error.");
+    } finally {
+      setResolving(false);
+    }
+  }, [conversationId, resolving, identityBody]);
+
+  const loadHistoryList = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/conversations?workspaceSlug=${encodeURIComponent(workspaceSlug)}`,
+      );
+      const data = await res.json();
+      if (data.ok) setHistoryList(data.conversations ?? []);
+    } catch {
+      // History is a convenience; chat works without it.
+    }
+  }, [workspaceSlug]);
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      setError("");
+      try {
+        const res = await fetch(
+          `/api/conversations/${id}?workspaceSlug=${encodeURIComponent(workspaceSlug)}`,
+        );
+        const data = await res.json();
+        if (!data.ok) {
+          setError(data.error ?? "Could not load conversation.");
+          return;
+        }
+        const turns: { role: "user" | "assistant"; text: string }[] = [];
+        const loaded: Msg[] = (data.messages ?? []).map(
+          (m: {
+            role: string;
+            text: string;
+            memoryUsed?: { private: boolean; shared: boolean };
+            provenance?: ProvenanceItem[];
+          }) => {
+            const prior = turns.map((t) => ({ ...t }));
+            turns.push({
+              role: m.role === "assistant" ? "assistant" : "user",
+              text: m.text,
+            });
+            if (m.role !== "assistant") return { kind: "user", text: m.text } as Msg;
+            return {
+              kind: "assistant",
+              text: m.text,
+              provenance: m.provenance ?? [],
+              memoryUsed: m.memoryUsed ?? { private: false, shared: false },
+              historyTurns: prior.length,
+              historySnapshot: prior,
+            } as Msg;
+          },
+        );
+        setConversationId(data.conversation.id);
+        setMessages(loaded);
+        setResolvedCard(
+          data.conversation.status === "resolved" ? {} : null,
+        );
+        setShowHistory(false);
+        scrollDown();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Network error.");
+      }
+    },
+    [workspaceSlug],
+  );
 
   // Product sign-out: Better Auth clears the session server-side, then a
   // full reload lets the server route render the customer gate again.
@@ -604,7 +555,6 @@ export function SupportChat({
     setMessages([]);
     setError("");
     setDraft("");
-    setFixOpen(false);
     if (!lockWorkspace) {
       setWorkspaceSlug("");
       setWorkspaceName("");
@@ -670,11 +620,22 @@ export function SupportChat({
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => openFixCard()}
-            disabled={messages.length === 0}
+            onClick={() => void markResolved()}
+            disabled={messages.length === 0 || !conversationId || resolving}
+            title="Confirm this issue is resolved"
             className="rounded-md border border-emerald-800 px-3 py-1.5 text-xs text-emerald-300 disabled:opacity-40 hover:border-emerald-600"
           >
-            Mark resolved
+            {resolving ? "Resolving…" : "Mark resolved"}
+          </button>
+          <button
+            onClick={() => {
+              setShowHistory((v) => !v);
+              if (historyList === null) void loadHistoryList();
+            }}
+            title="Your previous support conversations"
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+          >
+            History
           </button>
           <button
             onClick={newConversation}
@@ -758,12 +719,47 @@ export function SupportChat({
             </div>
           ),
         )}
-        {fixOpen && (
-          <FixCard
-            workspaceSlug={workspaceSlug}
-            history={fixHistory}
-            onClose={() => setFixOpen(false)}
-          />
+        {showHistory && (
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
+            <p className="text-xs font-medium text-neutral-200">Previous conversations</p>
+            {historyList === null ? (
+              <p className="mt-1 text-[11px] text-neutral-500">Loading…</p>
+            ) : historyList.length === 0 ? (
+              <p className="mt-1 text-[11px] text-neutral-500">No previous conversations yet.</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5">
+                {historyList.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      onClick={() => void openConversation(c.id)}
+                      className="w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-left hover:border-neutral-600"
+                    >
+                      <span className="block truncate text-xs text-neutral-100">{c.title}</span>
+                      <span className="mt-0.5 block font-mono text-[10px] text-neutral-500">
+                        {c.status}{c.lastMessageAt ? ` · ${new Date(c.lastMessageAt).toLocaleString()}` : ""}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {resolvedCard && (
+          <div className="rounded-lg border border-emerald-900 bg-neutral-900 px-4 py-3">
+            <p className="text-sm font-medium text-emerald-300">Resolved. This solution has been sent to the support team for review.</p>
+            {resolvedCard.candidateText && (
+              <pre className="mt-2 whitespace-pre-wrap rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-xs leading-5 text-neutral-200">
+                {resolvedCard.candidateText}
+              </pre>
+            )}
+            <button
+              onClick={() => setResolvedCard(null)}
+              className="mt-3 rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500"
+            >
+              Dismiss
+            </button>
+          </div>
         )}
         {sending && (
           <p className="text-sm text-neutral-500">Meros is recalling memory and answering…</p>

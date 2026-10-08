@@ -6,31 +6,27 @@ import {
   normalizeMemories,
   type MemoryItem,
 } from "@/lib/chat-memory";
-import { GeminiNotConfiguredError, generateSupportAnswer, type ChatTurn } from "@/lib/gemini";
+import { GeminiNotConfiguredError, generateSupportAnswer, getPrimaryModel, type ChatTurn } from "@/lib/gemini";
 import { previewUserId } from "@/lib/identity";
 import { buildRecallQuery, detectResolution } from "@/lib/support-memory";
 import { identityError, resolveProductIdentity } from "@/lib/product-identity";
 import type { AuthenticatedCustomer } from "@/lib/tenant-store";
+import { generateFixCandidate } from "@/lib/fix-candidate";
+import {
+  addAssistantMessage,
+  addUserMessage,
+  createConversation,
+  createPendingFixCard,
+  getConversationForCustomer,
+  listRecentTurns,
+  resolveConversation,
+  titleFromMessage,
+  type FixCardRow,
+} from "@/lib/support-ops";
 import { CHAT_RECALL_TIMEOUT_MS, recallBounded } from "@/lib/walrus";
 import { isWalrusConfigured, walrusBlocker } from "@/lib/env";
 
 const MAX_HISTORY_TURNS = 12;
-const MAX_TEXT_CHARS = 2000;
-
-function cleanTurns(raw: unknown): ChatTurn[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter(
-      (t): t is { role: string; text: string } =>
-        !!t && typeof t === "object" && (t.role === "user" || t.role === "assistant") &&
-        typeof t.text === "string" && t.text.trim().length > 0,
-    )
-    .slice(-MAX_HISTORY_TURNS)
-    .map((t) => ({
-      role: t.role as "user" | "assistant",
-      text: t.text.trim().slice(0, MAX_TEXT_CHARS),
-    }));
-}
 
 export type ProvenanceItem = {
   plane: "private" | "shared";
@@ -42,7 +38,8 @@ export type ProvenanceItem = {
 export async function POST(req: Request) {
   // Product identity is the Better Auth session. Client supplies only the
   // workspace route context — never customerId, accessCode, or namespaces.
-  let body: { workspaceSlug?: unknown; message?: unknown; history?: unknown }; // NOTE: P7 product flow uses session auth (legacy /chat access-code path is dev-only).
+  // conversationId (when present) is verified against that identity below.
+  let body: { workspaceSlug?: unknown; message?: unknown; history?: unknown; conversationId?: unknown; clientMessageId?: unknown }; // NOTE: P7 product flow uses session auth (legacy /chat access-code path is dev-only).
   try {
     body = await req.json();
   } catch {
@@ -67,7 +64,73 @@ export async function POST(req: Request) {
   if (message.length > 4000)
     return NextResponse.json({ ok: false, error: "message too long (max 4000)" }, { status: 400 });
 
-  const history = cleanTurns(body.history);
+  // Conversation lifecycle: verify ownership of a supplied thread, or open
+  // a fresh persistent conversation (+ its primary OPEN issue) for this
+  // exact workspace/customer. Client IDs are never trusted as authority.
+  let conversationId: string;
+  let conversationStatus: "open" | "resolved";
+  try {
+    if (typeof body.conversationId === "string" && body.conversationId) {
+      const existing = await getConversationForCustomer(
+        body.conversationId,
+        tenant.workspaceId,
+        tenant.customerId,
+      );
+      if (!existing) {
+        return NextResponse.json({ ok: false, error: "conversation not found" }, { status: 404 });
+      }
+      conversationId = existing.id;
+      conversationStatus = existing.status;
+    } else {
+      const created = await createConversation({
+        workspaceId: tenant.workspaceId,
+        customerId: tenant.customerId,
+        title: titleFromMessage(message),
+      });
+      conversationId = created.conversation.id;
+      conversationStatus = created.conversation.status;
+    }
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : "conversation unavailable" },
+      { status: 503 },
+    );
+  }
+
+  // Durability first: the USER complaint is persisted BEFORE any recall or
+  // generation, so a model failure can never lose it. Idempotent on
+  // clientMessageId — a retried send resumes instead of duplicating.
+  try {
+    await addUserMessage({
+      conversationId,
+      content: message,
+      clientId: typeof body.clientMessageId === "string" ? body.clientMessageId : null,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : "message persist failed", conversationId },
+      { status: 503 },
+    );
+  }
+
+  // Model context comes from the persisted Neon thread (bounded window),
+  // never from a browser-supplied transcript. Walrus long-term memory stays
+  // a separate, labelled input. The just-stored user turn is trailing in
+  // the thread — drop it here because the model appends `message` itself.
+  let history: ChatTurn[];
+  try {
+    const thread = await listRecentTurns(conversationId, MAX_HISTORY_TURNS + 1);
+    const last = thread[thread.length - 1];
+    history =
+      last && last.role === "user" && last.text === message
+        ? thread.slice(0, -1).slice(-MAX_HISTORY_TURNS)
+        : thread.slice(-MAX_HISTORY_TURNS);
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : "history unavailable", conversationId },
+      { status: 503 },
+    );
+  }
 
   // Compact retrieval query: symptom/error/product substance, filler removed.
   const recallQuery = buildRecallQuery(message, history);
@@ -116,14 +179,16 @@ export async function POST(req: Request) {
     });
     console.log(`[chat] gemini ok in ${Date.now() - tGemini}ms`);
   } catch (e) {
+    // The user complaint is ALREADY persisted above: the conversation stays
+    // open and nothing is lost. Report honestly with the conversation id.
     if (e instanceof GeminiNotConfiguredError) {
       return NextResponse.json(
-        { ok: false, error: e.message, needed: ["GEMINI_API_KEY"] },
+        { ok: false, error: e.message, needed: ["GEMINI_API_KEY"], conversationId },
         { status: 503 },
       );
     }
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "answer generation failed" },
+      { ok: false, error: e instanceof Error ? e.message : "answer generation failed", conversationId },
       { status: 502 },
     );
   }
@@ -136,11 +201,63 @@ export async function POST(req: Request) {
     distance: m.distance,
   }));
 
+  // Persist the successful answer + its provenance before responding.
+  try {
+    await addAssistantMessage({
+      conversationId,
+      content: answer,
+      model: getPrimaryModel(),
+      privateUsed: used.some((m) => m.plane === "private"),
+      sharedUsed: used.some((m) => m.plane === "shared"),
+      provenance,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : "answer persist failed", conversationId },
+      { status: 503 },
+    );
+  }
+
+  // Explicit resolution only — never inferred from the assistant's prose.
+  // On confirmation: resolve conversation + issue, then attempt a grounded
+  // pending Fix Card. Card generation failure never blocks the resolution.
+  const resolved = detectResolution(message);
+  let issueStatus: "open" | "resolved" = conversationStatus === "resolved" ? "resolved" : "open";
+  let fixCard: { id: string; status: FixCardRow["status"]; candidateText?: string } | null = null;
+  if (resolved) {
+    try {
+      const issue = await resolveConversation(conversationId, message.slice(0, 500));
+      issueStatus = issue.status;
+      conversationStatus = "resolved";
+      try {
+        const transcript = await listRecentTurns(conversationId, MAX_HISTORY_TURNS);
+        const generated = await generateFixCandidate(transcript);
+        if (generated.status === "ready") {
+          const card = await createPendingFixCard({
+            workspaceId: tenant.workspaceId,
+            customerId: tenant.customerId,
+            conversationId,
+            issueId: issue.id,
+            candidateText: generated.text,
+          });
+          fixCard = { id: card.id, status: card.status, candidateText: generated.text };
+        }
+      } catch (e) {
+        console.log(`[chat] fix card generation skipped: ${e instanceof Error ? e.message : e}`);
+      }
+    } catch (e) {
+      return NextResponse.json(
+        { ok: false, error: e instanceof Error ? e.message : "resolution failed", conversationId },
+        { status: 503 },
+      );
+    }
+  }
+
   console.log(`[chat] done (private=${p.status} shared=${s.status} provenance=${provenance.length})`);
   return NextResponse.json({
     ok: true,
     answer,
-    resolutionDetected: detectResolution(message),
+    resolutionDetected: resolved,
     memoryStatus,
     degradedMemory,
     userPreview: previewUserId(tenant.customerId),
@@ -151,5 +268,8 @@ export async function POST(req: Request) {
     },
     provenance,
     historyTurns: history.length,
+    conversation: { id: conversationId, status: conversationStatus },
+    issue: { status: issueStatus },
+    fixCard,
   });
 }
