@@ -1,5 +1,6 @@
 import "server-only";
 import { MemWal } from "@mysten-incubation/memwal";
+import { settleWithTimeout } from "./retry";
 import {
   getMemwalAccountId,
   getMemwalPrivateKey,
@@ -114,4 +115,61 @@ export async function recallShared(
   opts?: { topK?: number; maxDistance?: number },
 ): Promise<{ results: RecallHit[]; total: number }> {
   return recallPrivate(SHARED_FIXES_NAMESPACE, query, opts);
+}
+
+/** Per-plane wall-clock budget for chat UX. The P0 write path is untouched. */
+export const CHAT_RECALL_TIMEOUT_MS = 10_000;
+
+export type PlaneStatus = "ok" | "timeout" | "error";
+
+export type BoundedRecall = {
+  status: PlaneStatus;
+  results: RecallHit[];
+  total: number;
+  durationMs: number;
+};
+
+/**
+ * Bounded recall for the chat loop: one plane, one deadline. A stalled
+ * Walrus/SDK operation (e.g. a hung SEAL session build or Sui RPC inside
+ * the SDK) becomes a "timeout" verdict instead of hanging /api/chat.
+ * Never throws — callers degrade with whatever planes succeeded.
+ */
+export async function recallBounded(
+  namespace: string,
+  query: string,
+  opts?: { topK?: number; maxDistance?: number; timeoutMs?: number },
+): Promise<BoundedRecall> {
+  const started = Date.now();
+  const settled = await settleWithTimeout(
+    recallPrivate(namespace, query, opts),
+    opts?.timeoutMs ?? CHAT_RECALL_TIMEOUT_MS,
+  );
+  const durationMs = Date.now() - started;
+  if (settled.status === "ok") {
+    return { status: "ok", results: settled.value.results, total: settled.value.total, durationMs };
+  }
+  return { status: settled.status, results: [], total: 0, durationMs };
+}
+
+/**
+ * Write one approved shared fix. Called ONLY from the promote route after
+ * explicit human approval + server-side validation. Waits for completion.
+ */
+export async function rememberShared(text: string): Promise<RememberDone> {
+  const client = getClient();
+  const clean = text.trim();
+  if (!clean) throw new Error("shared fix text must not be empty");
+  if (clean.length > 2000) throw new Error("shared fix text too long");
+  const result = await client.rememberAndWait(clean, SHARED_FIXES_NAMESPACE, {
+    timeoutMs: 120_000,
+    pollIntervalMs: 1_500,
+  });
+  if (!result.blob_id) throw new Error("Walrus write completed without a blob_id");
+  return {
+    blobId: result.blob_id,
+    jobId: result.job_id ?? result.id,
+    namespace: result.namespace || SHARED_FIXES_NAMESPACE,
+    owner: result.owner,
+  };
 }

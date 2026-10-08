@@ -8,7 +8,9 @@ import {
 } from "@/lib/chat-memory";
 import { GeminiNotConfiguredError, generateSupportAnswer, type ChatTurn } from "@/lib/gemini";
 import { identityFromAccessCode, previewUserId } from "@/lib/identity";
-import { WalrusNotConfiguredError, recallPrivate, recallShared } from "@/lib/walrus";
+import { buildRecallQuery, detectResolution } from "@/lib/support-memory";
+import { CHAT_RECALL_TIMEOUT_MS, SHARED_FIXES_NAMESPACE, recallBounded } from "@/lib/walrus";
+import { isWalrusConfigured, walrusBlocker } from "@/lib/env";
 
 const MAX_HISTORY_TURNS = 12;
 const MAX_TEXT_CHARS = 2000;
@@ -62,38 +64,52 @@ export async function POST(req: Request) {
 
   const history = cleanTurns(body.history);
 
-  // Dual-plane recall in parallel. Shared-empty is a normal success path.
-  let privateHits: Awaited<ReturnType<typeof recallPrivate>>["results"] = [];
-  let sharedHits: typeof privateHits = [];
-  try {
-    const [p, s] = await Promise.all([
-      recallPrivate(identity.namespace, message, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE }),
-      recallShared(message, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE }),
-    ]);
-    privateHits = p.results;
-    sharedHits = s.results;
-  } catch (e) {
-    if (e instanceof WalrusNotConfiguredError) {
-      return NextResponse.json(
-        { ok: false, error: e.message, needed: e.needed },
-        { status: 503 },
-      );
-    }
+  // Compact retrieval query: symptom/error/product substance, filler removed.
+  const recallQuery = buildRecallQuery(message, history);
+
+  // Dual-plane recall, each plane independently bounded. One stalled plane
+  // can never hang the answer: we degrade with whatever actually returned.
+  // (No namespaces, codes, or secrets are ever logged — plane + ms only.)
+  if (!isWalrusConfigured()) {
+    const blocker = walrusBlocker();
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "memory recall failed" },
-      { status: 502 },
+      { ok: false, error: blocker.reason, needed: blocker.needed },
+      { status: 503 },
     );
+  }
+  console.log(`[chat] recall start (timeout ${CHAT_RECALL_TIMEOUT_MS}ms/plane)`);
+  const [p, s] = await Promise.all([
+    recallBounded(identity.namespace, recallQuery, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE })
+      .then((r) => {
+        console.log(`[chat] recall private ${r.status} in ${r.durationMs}ms (${r.total} hits)`);
+        return r;
+      }),
+    recallBounded(SHARED_FIXES_NAMESPACE, recallQuery, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE })
+      .then((r) => {
+        console.log(`[chat] recall shared ${r.status} in ${r.durationMs}ms (${r.total} hits)`);
+        return r;
+      }),
+  ]);
+  const privateHits = p.results;
+  const sharedHits = s.results;
+  const memoryStatus = { private: p.status, shared: s.status } as const;
+  const degradedMemory = p.status !== "ok" || s.status !== "ok";
+  if (degradedMemory) {
+    console.log(`[chat] recall degraded (private=${p.status} shared=${s.status}) — answering with available context`);
   }
 
   const used: MemoryItem[] = normalizeMemories(privateHits, sharedHits);
 
   let answer: string;
   try {
+    console.log(`[chat] gemini start (${used.length} memories injected)`);
+    const tGemini = Date.now();
     answer = await generateSupportAnswer({
       systemInstruction: buildSystemInstruction(used),
       history,
       message,
     });
+    console.log(`[chat] gemini ok in ${Date.now() - tGemini}ms`);
   } catch (e) {
     if (e instanceof GeminiNotConfiguredError) {
       return NextResponse.json(
@@ -115,9 +131,13 @@ export async function POST(req: Request) {
     distance: m.distance,
   }));
 
+  console.log(`[chat] done (private=${p.status} shared=${s.status} provenance=${provenance.length})`);
   return NextResponse.json({
     ok: true,
     answer,
+    resolutionDetected: detectResolution(message),
+    memoryStatus,
+    degradedMemory,
     userPreview: previewUserId(identity.userId),
     memoryUsed: {
       private: used.some((m) => m.plane === "private"),

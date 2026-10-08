@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type ProvenanceItem = {
   plane: "private" | "shared";
@@ -17,7 +17,18 @@ type Msg =
       provenance: ProvenanceItem[];
       memoryUsed: { private: boolean; shared: boolean };
       historyTurns: number;
+      captureNote?: string;
+      degradedMemory?: boolean;
     };
+
+type FixState =
+  | { status: "preparing" }
+  | { status: "ready"; candidate: string }
+  | { status: "none" }
+  | { status: "saving"; candidate: string }
+  | { status: "stored"; candidate: string; blobId: string }
+  | { status: "kept-private" }
+  | { status: "failed"; error: string };
 
 function shortBlob(b: string): string {
   return b.length > 18 ? `${b.slice(0, 10)}…${b.slice(-6)}` : b;
@@ -105,6 +116,163 @@ function MemoryLens({
   );
 }
 
+/** Explicit capture after the answer renders. Returns a short UI note. */
+async function captureTurn(
+  accessCode: string,
+  message: string,
+  answer: string,
+  history: { role: "user" | "assistant"; text: string }[],
+  knownTexts: string[],
+): Promise<string | null> {
+  try {
+    const res = await fetch("/api/memory/capture", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accessCode, message, answer, history, knownTexts }),
+    });
+    const data = await res.json();
+    if (!data.ok) return "Private memory save unavailable right now.";
+    const facts = (data.facts ?? []) as { status: string }[];
+    if (facts.length === 0) return null;
+    const stored = facts.filter((f) => f.status === "stored").length;
+    const failed = facts.filter((f) => f.status === "failed").length;
+    if (stored > 0 && failed === 0) return `Remembered ${stored} private memor${stored === 1 ? "y" : "ies"} for next time.`;
+    if (stored > 0) return `Remembered ${stored}, failed to save ${failed} — retry later.`;
+    return "Could not save private memory — nothing was stored.";
+  } catch {
+    return null;
+  }
+}
+
+function FixCard({
+  accessCode,
+  history,
+  onClose,
+}: {
+  accessCode: string;
+  history: { role: "user" | "assistant"; text: string }[];
+  onClose: () => void;
+}) {
+  const [state, setState] = useState<FixState>({ status: "preparing" });
+
+  const load = useCallback(async () => {
+    setState({ status: "preparing" });
+    try {
+      const res = await fetch("/api/fixes/candidate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accessCode, history }),
+      });
+      const data = await res.json();
+      if (data.ok && data.candidate) {
+        setState({ status: "ready", candidate: data.candidate });
+      } else if (data.ok) {
+        setState({ status: "none" });
+      } else {
+        setState({ status: "failed", error: data.blocked ?? data.error ?? "Could not prepare a fix." });
+      }
+    } catch (e) {
+      setState({ status: "failed", error: e instanceof Error ? e.message : "Network error." });
+    }
+  }, [accessCode, history]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const saveShared = async (candidate: string) => {
+    setState({ status: "saving", candidate });
+    try {
+      const res = await fetch("/api/fixes/promote", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accessCode, candidate }),
+      });
+      const data = await res.json();
+      if (data.ok && data.status === "stored") {
+        setState({ status: "stored", candidate, blobId: data.blobId });
+      } else {
+        setState({ status: "failed", error: data.error ?? "Shared save failed." });
+      }
+    } catch (e) {
+      setState({ status: "failed", error: e instanceof Error ? e.message : "Network error." });
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-emerald-900 bg-neutral-900 px-4 py-3">
+      <p className="text-sm font-medium text-neutral-100">Turn this resolution into shared support memory?</p>
+      <p className="mt-1 text-xs text-neutral-400">
+        Only the reusable fix will be shared. Your private context stays private.
+      </p>
+      {state.status === "preparing" && (
+        <p className="mt-3 text-xs text-neutral-500">Preparing sanitized preview…</p>
+      )}
+      {(state.status === "ready" || state.status === "saving") && (
+        <div className="mt-3">
+          <pre className="whitespace-pre-wrap rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-xs leading-5 text-neutral-200">
+            {state.candidate}
+          </pre>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => void saveShared(state.candidate)}
+              disabled={state.status === "saving"}
+              className="rounded-md bg-emerald-500 px-4 py-2 text-xs font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
+            >
+              {state.status === "saving" ? "Saving to shared memory…" : "Save shared"}
+            </button>
+            <button
+              onClick={() => setState({ status: "kept-private" })}
+              disabled={state.status === "saving"}
+              className="rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500"
+            >
+              Keep private
+            </button>
+          </div>
+        </div>
+      )}
+      {state.status === "stored" && (
+        <div className="mt-3">
+          <p className="text-xs font-medium text-emerald-400">Stored in shared support memory.</p>
+          <p className="mt-1 break-all font-mono text-[11px] text-neutral-400">blob {state.blobId}</p>
+          <button onClick={onClose} className="mt-3 rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
+            Back to chat
+          </button>
+        </div>
+      )}
+      {state.status === "kept-private" && (
+        <div className="mt-3">
+          <p className="text-xs text-neutral-300">Kept private — nothing was written to shared memory.</p>
+          <button onClick={onClose} className="mt-3 rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
+            Back to chat
+          </button>
+        </div>
+      )}
+      {state.status === "none" && (
+        <div className="mt-3">
+          <p className="text-xs text-neutral-300">No reusable fix found in this conversation — nothing to share.</p>
+          <button onClick={onClose} className="mt-3 rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
+            Back to chat
+          </button>
+        </div>
+      )}
+      {state.status === "failed" && (
+        <div className="mt-3">
+          <p className="text-xs text-red-300">{state.error}</p>
+          <div className="mt-3 flex gap-2">
+            <button onClick={() => void load()} className="rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
+              Retry
+            </button>
+            <button onClick={onClose} className="rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500">
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const [accessCode, setAccessCode] = useState("");
   const [started, setStarted] = useState(false);
@@ -112,6 +280,7 @@ export default function ChatPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [fixOpen, setFixOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const scrollDown = () => {
@@ -119,6 +288,26 @@ export default function ChatPage() {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
     );
   };
+
+  const transcriptForFix = useCallback(() =>
+    messages.flatMap((m): { role: "user" | "assistant"; text: string }[] =>
+      m.kind === "user"
+        ? [{ role: "user", text: m.text }]
+        : [{ role: "assistant", text: m.text }],
+    ), [messages]);
+
+  const [fixHistory, setFixHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+
+  // Accepts an explicit snapshot: the auto-open path in send() must pass the
+  // fresh transcript (user confirmation + latest answer), because the
+  // `messages` closure there predates this turn's setMessages calls. Without
+  // this, the candidate endpoint never sees the confirmation turn and
+  // correctly-but-uselessly reports "no reusable fix found".
+  const openFixCard = useCallback((snapshot?: { role: "user" | "assistant"; text: string }[]) => {
+    setFixHistory(snapshot ?? transcriptForFix());
+    setFixOpen(true);
+    scrollDown();
+  }, [transcriptForFix]);
 
   const send = useCallback(async () => {
     const text = draft.trim();
@@ -144,6 +333,8 @@ export default function ChatPage() {
         setError(data.error ?? "Something went wrong. Try again.");
         return;
       }
+      const assistantIdx = messages.length + 1;
+      const knownTexts: string[] = (data.provenance ?? []).map((p: ProvenanceItem) => p.text);
       setMessages((prev) => [
         ...prev,
         {
@@ -152,15 +343,34 @@ export default function ChatPage() {
           provenance: data.provenance ?? [],
           memoryUsed: data.memoryUsed ?? { private: false, shared: false },
           historyTurns: data.historyTurns ?? history.length,
+          degradedMemory: data.degradedMemory === true,
         },
       ]);
       scrollDown();
+      if (data.resolutionDetected === true) {
+        openFixCard([
+          ...history,
+          { role: "user", text },
+          { role: "assistant", text: data.answer },
+        ]);
+      }
+      // Explicit capture runs AFTER the answer renders (non-blocking for
+      // chat latency). The capture endpoint still awaits real Walrus
+      // completion per fact and reports honest per-fact status.
+      void captureTurn(accessCode, text, data.answer, history, knownTexts).then((note) => {
+        if (!note) return;
+        setMessages((prev) =>
+          prev.map((m, idx) =>
+            idx === assistantIdx && m.kind === "assistant" ? { ...m, captureNote: note } : m,
+          ),
+        );
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error. Try again.");
     } finally {
       setSending(false);
     }
-  }, [draft, sending, accessCode, messages]);
+  }, [draft, sending, accessCode, messages, openFixCard]);
 
   const newConversation = useCallback(() => {
     // Clears the visible session transcript only. Long-term memory stays in
@@ -169,6 +379,7 @@ export default function ChatPage() {
     setMessages([]);
     setError("");
     setDraft("");
+    setFixOpen(false);
   }, []);
 
   if (!started) {
@@ -217,12 +428,21 @@ export default function ChatPage() {
           <p className="text-xs uppercase tracking-widest text-neutral-500">Meros</p>
           <p className="text-sm text-neutral-300">Support chat with memory</p>
         </div>
-        <button
-          onClick={newConversation}
-          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
-        >
-          New conversation
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => openFixCard()}
+            disabled={messages.length === 0}
+            className="rounded-md border border-emerald-800 px-3 py-1.5 text-xs text-emerald-300 disabled:opacity-40 hover:border-emerald-600"
+          >
+            Mark resolved
+          </button>
+          <button
+            onClick={newConversation}
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+          >
+            New conversation
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 space-y-4 py-6">
@@ -246,8 +466,21 @@ export default function ChatPage() {
                 {m.text}
               </p>
               <MemoryLens msg={m} historyTurns={m.historyTurns} />
+              {m.degradedMemory === true && (
+                <p className="mt-1 text-[11px] text-amber-400/80">Some memory sources were temporarily unavailable. Meros answered from the context it could retrieve.</p>
+              )}
+              {m.captureNote && (
+                <p className="mt-1 text-[11px] text-neutral-500">{m.captureNote}</p>
+              )}
             </div>
           ),
+        )}
+        {fixOpen && (
+          <FixCard
+            accessCode={accessCode}
+            history={fixHistory}
+            onClose={() => setFixOpen(false)}
+          />
         )}
         {sending && (
           <p className="text-sm text-neutral-500">Meros is recalling memory and answering…</p>

@@ -41,6 +41,19 @@ injected memories. Zero-memory users get a normal useful answer with honest
 "No relevant memory found" copy. No promotion workflow yet — shared fixes
 stay empty until a later slice.
 
+## Resolution loop (Alice teaches → Bob benefits)
+
+`/chat` now captures durable private facts after each answer (`POST
+/api/memory/capture`, explicit/high-confidence extraction, Walrus completion
+awaited per fact). Saying "that fixed it" (or **Mark resolved**) opens a Fix
+Card: `POST /api/fixes/candidate` proposes a sanitized `[SHARED_FIX]`
+preview, and only **Save shared** calls `POST /api/fixes/promote`, which
+re-validates server-side and writes to `meros:shared:fixes`. **Keep private**
+performs zero network writes by construction. Retrieval queries are compacted
+(filler stripped) so short facts match on substance; cutoff stays 0.8.
+Gemini calls use bounded retry (3 attempts, backoff, retryable codes only)
+with optional `GEMINI_FALLBACK_MODEL` used solely after primary exhaustion.
+
 ## Diagnostic proof (fresh-session)
 
 1. Open `/dev`, enter access code e.g. `P0-ALICE-01`
