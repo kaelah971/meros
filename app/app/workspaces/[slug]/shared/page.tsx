@@ -38,6 +38,17 @@ export default async function SharedMemoryPage({
               </pre>
               <p className="mt-1 font-mono text-[11px] text-neutral-500">
                 {c.walrus_blob_id ? `blob ${shortBlob(c.walrus_blob_id)}` : "blob pending"}
+                {c.conversation_id ? (
+                  <>
+                    {" · "}
+                    <a
+                      href={`/app/workspaces/${slug}/conversations/${c.conversation_id}`}
+                      className="text-emerald-300 hover:underline"
+                    >
+                      source conversation
+                    </a>
+                  </>
+                ) : null}
                 {c.reviewed_at ? ` · reviewed ${new Date(c.reviewed_at).toLocaleString()}` : ""}
               </p>
             </li>

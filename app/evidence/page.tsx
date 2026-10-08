@@ -76,6 +76,9 @@ export default function EvidencePage() {
     <main className="mx-auto max-w-2xl px-4 py-6">
       <p className="text-xs uppercase tracking-widest text-neutral-500">Meros · Evidence</p>
       <h1 className="mt-1 text-xl font-semibold">What memory changed</h1>
+      <p className="mt-2 inline-block rounded border border-amber-800 bg-amber-950/40 px-2 py-1 text-[11px] text-amber-300">
+        Demo / hackathon proof surface — session-only, never customer-facing.
+      </p>
       <p className="mt-2 text-xs leading-5 text-neutral-400">
         Session-only evidence — ephemeral, clears when this browser session ends.
         Durable proof lives in Walrus (blob references below); cross-restart

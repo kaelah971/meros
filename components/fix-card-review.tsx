@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { shortBlob } from "@/lib/evidence";
+import { parseSharedFix } from "@/lib/support-memory";
 
 export type FixCardView = {
   id: string;
@@ -69,6 +70,34 @@ export function ReviewButtons({
   );
 }
 
+/** Structured Symptom/Cause/Resolution rendering; falls back to raw text. */
+function FixCandidateBody({ text }: { text: string }) {
+  const parsed = parseSharedFix(text);
+  if (!parsed) {
+    return (
+      <pre className="mt-1 whitespace-pre-wrap font-mono text-xs leading-5 text-neutral-200">
+        {text}
+      </pre>
+    );
+  }
+  return (
+    <dl className="mt-1 space-y-1.5 text-xs leading-5">
+      {(
+        [
+          ["Symptom", parsed.symptom],
+          ["Cause", parsed.cause],
+          ["Resolution", parsed.resolution],
+        ] as const
+      ).map(([label, value]) => (
+        <div key={label}>
+          <dt className="font-medium text-neutral-300">{label}</dt>
+          <dd className="text-neutral-400">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function FixCardItem({
   workspaceSlug,
   card,
@@ -85,9 +114,10 @@ export function FixCardItem({
         {card.blobId ? ` · blob ${shortBlob(card.blobId)}` : ""} ·{" "}
         {new Date(card.createdAt).toLocaleString()}
       </p>
-      <pre className="mt-1 whitespace-pre-wrap font-mono text-xs leading-5 text-neutral-200">
-        {card.candidateText}
-      </pre>
+      <FixCandidateBody text={card.candidateText} />
+      <p className="mt-1.5 rounded border border-neutral-800 bg-neutral-950 px-2 py-1 text-[11px] leading-4 text-neutral-500">
+        Only this reusable fix is shared. Customer-private memory stays private.
+      </p>
       {card.status === "pending_review" && (
         <ReviewButtons workspaceSlug={workspaceSlug} card={card} onDone={onDone} />
       )}

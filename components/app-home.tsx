@@ -115,18 +115,21 @@ function OrgCard({ org, origin }: { org: Org; origin: string }) {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            aria-label="Workspace name"
             placeholder="Workspace name"
             className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-emerald-500"
           />
           <input
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
+            aria-label="Workspace URL slug (optional)"
             placeholder="slug (optional)"
             className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-emerald-500"
           />
           <input
             value={product}
             onChange={(e) => setProduct(e.target.value)}
+            aria-label="Product name (optional)"
             placeholder="Product name (optional)"
             className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-emerald-500"
           />
@@ -228,9 +231,14 @@ export function AppHomeClient({ email }: { email: string }) {
       {orgs === null ? (
         <p className="mt-6 text-xs text-neutral-500">Loading…</p>
       ) : orgs.length === 0 ? (
-        <p className="mt-6 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-xs text-neutral-400">
-          No organizations yet — create your first one below to get a customer support URL.
-        </p>
+        <div className="mt-6 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3">
+          <p className="text-sm font-medium text-neutral-100">Welcome — let&apos;s set up your support workspace</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-neutral-400">
+            <li>Create your organization below.</li>
+            <li>Inside it, create your first workspace (name, product, URL slug).</li>
+            <li>Copy the customer support URL and share it — no demo data needed.</li>
+          </ol>
+        </div>
       ) : (
         <ul className="mt-4 space-y-3">
           {orgs.map((o) => (
@@ -239,11 +247,14 @@ export function AppHomeClient({ email }: { email: string }) {
         </ul>
       )}
 
-      <h2 className="mt-8 text-sm font-medium text-neutral-200">Create organization</h2>
+      <h2 className="mt-8 text-sm font-medium text-neutral-200">
+        {orgs !== null && orgs.length === 0 ? "Step 1 — Create your organization" : "Create organization"}
+      </h2>
       <div className="mt-2 flex gap-2">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
+          aria-label="Organization name"
           placeholder="e.g. Acme Inc"
           className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
         />

@@ -117,9 +117,12 @@ function MemoryLens({
                 {priv.map((p) => (
                   <li key={p.blobId} className="text-neutral-300">
                     <span className="text-neutral-100">{p.text}</span>
-                    <span className="mt-0.5 block font-mono text-[11px] text-neutral-500">
-                      blob {shortBlob(p.blobId)} · relevance {p.distance.toFixed(3)}
-                    </span>
+                    <details className="mt-0.5">
+                      <summary className="cursor-pointer font-mono text-[11px] text-neutral-500 hover:text-neutral-300">storage proof</summary>
+                      <span className="block font-mono text-[11px] text-neutral-500">
+                        blob {shortBlob(p.blobId)} · relevance {p.distance.toFixed(3)}
+                      </span>
+                    </details>
                   </li>
                 ))}
               </ul>
@@ -134,9 +137,12 @@ function MemoryLens({
                 {shared.map((p) => (
                   <li key={p.blobId} className="text-neutral-300">
                     <span className="text-neutral-100">{p.text}</span>
-                    <span className="mt-0.5 block font-mono text-[11px] text-neutral-500">
-                      blob {shortBlob(p.blobId)} · relevance {p.distance.toFixed(3)}
-                    </span>
+                    <details className="mt-0.5">
+                      <summary className="cursor-pointer font-mono text-[11px] text-neutral-500 hover:text-neutral-300">storage proof</summary>
+                      <span className="block font-mono text-[11px] text-neutral-500">
+                        blob {shortBlob(p.blobId)} · relevance {p.distance.toFixed(3)}
+                      </span>
+                    </details>
                   </li>
                 ))}
               </ul>
@@ -587,6 +593,7 @@ export function SupportChat({
               <input
                 value={workspaceSlug}
                 onChange={(e) => setWorkspaceSlug(e.target.value)}
+                aria-label="Workspace slug"
                 placeholder="e.g. acme"
                 autoComplete="off"
                 className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
@@ -783,6 +790,7 @@ export function SupportChat({
                 send();
               }
             }}
+            aria-label="Describe your issue"
             placeholder="Describe your issue…"
             className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
           />

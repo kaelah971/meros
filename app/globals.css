@@ -3,3 +3,49 @@
 :root {
   color-scheme: dark;
 }
+
+:focus-visible {
+  outline: 2px solid #77ff75;
+  outline-offset: 2px;
+}
+
+.font-display {
+  font-family: var(--font-display), "Courier New", monospace;
+}
+
+/* Faint technical grid, fading at edges */
+.meros-grid {
+  background-image:
+    linear-gradient(rgba(119, 255, 117, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(119, 255, 117, 0.055) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, black 30%, transparent 75%);
+}
+
+/* Perspective floor grid beneath the hero object */
+.meros-floor {
+  background-image:
+    linear-gradient(rgba(119, 255, 117, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(119, 255, 117, 0.14) 1px, transparent 1px);
+  background-size: 36px 36px;
+  transform: perspective(520px) rotateX(62deg);
+  transform-origin: center top;
+  mask-image: linear-gradient(to bottom, black 10%, transparent 85%);
+  -webkit-mask-image: linear-gradient(to bottom, black 10%, transparent 85%);
+}
+
+.meros-halo {
+  background: radial-gradient(
+    ellipse 42% 30% at 50% 42%,
+    rgba(119, 255, 117, 0.16) 0%,
+    rgba(119, 255, 117, 0.05) 45%,
+    transparent 70%
+  );
+}
+
+.meros-card {
+  background: rgba(10, 27, 18, 0.72);
+  border: 1px solid rgba(119, 255, 117, 0.16);
+  backdrop-filter: blur(6px);
+}
