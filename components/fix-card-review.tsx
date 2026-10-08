@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { shortBlob } from "@/lib/evidence";
 import { parseSharedFix } from "@/lib/support-memory";
+import { StatusPill } from "@/components/meros-ui";
 
 export type FixCardView = {
   id: string;
@@ -53,14 +54,14 @@ export function ReviewButtons({
         <button
           onClick={() => void review("shared")}
           disabled={busy !== null}
-          className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
+          className="rounded-md bg-[#77FF75] px-3 py-1.5 text-xs font-medium text-neutral-950 disabled:opacity-40 hover:bg-[#9AFF8D]"
         >
           {busy === "shared" ? "Saving to shared memory…" : "Save shared"}
         </button>
         <button
           onClick={() => void review("kept_private")}
           disabled={busy !== null}
-          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 disabled:opacity-40 hover:border-neutral-500"
+          className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 disabled:opacity-40 hover:border-[rgba(119,255,117,0.5)]"
         >
           {busy === "kept_private" ? "Saving…" : "Keep private"}
         </button>
@@ -108,14 +109,16 @@ export function FixCardItem({
   onDone: (id: string, status: string, blobId?: string) => void;
 }) {
   return (
-    <li className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2">
-      <p className="font-mono text-[11px] text-neutral-500">
-        {card.status}
-        {card.blobId ? ` · blob ${shortBlob(card.blobId)}` : ""} ·{" "}
-        {new Date(card.createdAt).toLocaleString()}
+    <li className="rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-3 py-2">
+      <p className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-neutral-500">
+        <StatusPill status={card.status} />
+        <span>
+          {card.blobId ? `blob ${shortBlob(card.blobId)}` : "no blob yet"} ·{" "}
+          {new Date(card.createdAt).toLocaleString()}
+        </span>
       </p>
       <FixCandidateBody text={card.candidateText} />
-      <p className="mt-1.5 rounded border border-neutral-800 bg-neutral-950 px-2 py-1 text-[11px] leading-4 text-neutral-500">
+      <p className="mt-1.5 rounded border border-[rgba(119,255,117,0.14)] bg-[#06100B] px-2 py-1 text-[11px] leading-4 text-neutral-500">
         Only this reusable fix is shared. Customer-private memory stays private.
       </p>
       {card.status === "pending_review" && (

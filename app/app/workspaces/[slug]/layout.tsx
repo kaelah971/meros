@@ -2,8 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { getOwnedWorkspace } from "@/lib/db";
+import { ConsoleShell, PageBackdrop, type ConsoleNavItem } from "@/components/meros-ui";
 
-const NAV = [
+const NAV: ConsoleNavItem[] = [
   { label: "Overview", href: "" },
   { label: "Conversations", href: "/conversations" },
   { label: "Customers", href: "/customers" },
@@ -30,27 +31,26 @@ export default async function WorkspaceLayout({
   if (!ws) redirect("/app");
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-6">
-      <p className="text-xs uppercase tracking-widest text-neutral-500">Meros · {ws.organization_name}</p>
-      <h1 className="mt-1 text-xl font-semibold">{ws.name}</h1>
-      <p className="mt-1 font-mono text-[11px] text-neutral-500">
-        slug: {ws.slug} · your role: {ws.role} · support: /support/{ws.slug}
-      </p>
-      <nav className="mt-4 flex flex-wrap gap-2">
-        {NAV.map((item) => (
-          <Link
-            key={item.label}
-            href={`/app/workspaces/${ws.slug}${item.href}`}
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
-          >
-            {item.label}
+    <div className="relative min-h-screen bg-[#030806] text-[#F5F7F5]">
+      <PageBackdrop />
+      <ConsoleShell
+        orgName={ws.organization_name}
+        workspaceName={ws.name}
+        workspaceSlug={ws.slug}
+        role={ws.role}
+        email={user.email}
+        nav={NAV.map((item) => ({
+          ...item,
+          href: `/app/workspaces/${ws.slug}${item.href}`,
+        }))}
+      >
+        {children}
+        <p className="mt-6 text-xs text-[#8E9B93]">
+          <Link href="/app" className="text-[#9AFF8D] hover:underline">
+            ← All organizations
           </Link>
-        ))}
-      </nav>
-      <div className="mt-4">{children}</div>
-      <p className="mt-6 text-xs text-neutral-500">
-        <Link href="/app" className="text-emerald-300 hover:underline">← All organizations</Link>
-      </p>
-    </main>
+        </p>
+      </ConsoleShell>
+    </div>
   );
 }

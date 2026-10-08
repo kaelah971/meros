@@ -44,7 +44,7 @@ export default async function ConversationDetail({
             className={`max-w-[95%] rounded-lg border px-3 py-2 text-xs leading-5 ${
               m.role === "user"
                 ? "ml-auto border-emerald-900 bg-emerald-950/40 text-neutral-100"
-                : "border-neutral-800 bg-neutral-900 text-neutral-200"
+                : "border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] text-neutral-200"
             }`}
           >
             <p className="whitespace-pre-wrap">{m.content}</p>
@@ -69,7 +69,7 @@ export default async function ConversationDetail({
             <Link
               key={c.id}
               href={`/app/workspaces/${slug}/fix-cards`}
-              className="mt-1 block rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-300 hover:border-neutral-600"
+              className="mt-1 block rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-3 py-2 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
             >
               <span className="font-mono text-[11px] text-neutral-500">{c.status}</span>
               <span className="mt-0.5 block whitespace-pre-wrap">{c.candidate_text.slice(0, 200)}{c.candidate_text.length > 200 ? "…" : ""}</span>

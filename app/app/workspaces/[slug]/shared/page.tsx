@@ -3,6 +3,7 @@ import { currentUser } from "@/lib/auth";
 import { getOwnedWorkspace } from "@/lib/db";
 import { listFixCards } from "@/lib/support-ops";
 import { shortBlob } from "@/lib/evidence";
+import { EmptyState } from "@/components/meros-ui";
 
 /**
  * Shared memory registry: Neon fix_cards(status=shared) is the index of
@@ -26,13 +27,16 @@ export default async function SharedMemoryPage({
     <div>
       <p className="text-sm font-medium text-neutral-100">Shared fixes ({shared.length})</p>
       {shared.length === 0 ? (
-        <p className="mt-2 text-xs text-neutral-500">
-          No approved shared fixes yet. Resolved customer issues produce Fix Cards for review.
-        </p>
+        <div className="mt-2">
+          <EmptyState
+            title="No shared fixes yet"
+            body="Approved Fix Cards will appear here as reusable organizational memory."
+          />
+        </div>
       ) : (
         <ul className="mt-2 space-y-2">
           {shared.map((c) => (
-            <li key={c.id} className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2">
+            <li key={c.id} className="rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-3 py-2">
               <pre className="whitespace-pre-wrap font-mono text-xs leading-5 text-neutral-200">
                 {c.candidate_text}
               </pre>
@@ -43,7 +47,7 @@ export default async function SharedMemoryPage({
                     {" · "}
                     <a
                       href={`/app/workspaces/${slug}/conversations/${c.conversation_id}`}
-                      className="text-emerald-300 hover:underline"
+                      className="text-[#9AFF8D] hover:underline"
                     >
                       source conversation
                     </a>

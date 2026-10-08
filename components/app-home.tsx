@@ -68,7 +68,7 @@ function OrgCard({ org, origin }: { org: Org; origin: string }) {
   };
 
   return (
-    <li className="rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3">
+    <li className="rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-4 py-3">
       <p className="text-sm font-medium text-neutral-100">{org.name}</p>
       <p className="mt-0.5 text-xs text-neutral-500">
         {org.slug} · your role: {org.role}
@@ -77,7 +77,7 @@ function OrgCard({ org, origin }: { org: Org; origin: string }) {
       {workspaces !== null && workspaces.length > 0 && (
         <ul className="mt-3 space-y-2">
           {workspaces.map((w) => (
-            <li key={w.slug} className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+            <li key={w.slug} className="rounded-md border border-[rgba(119,255,117,0.14)] bg-[#06100B] px-3 py-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-xs font-medium text-neutral-100">{w.name}</p>
@@ -88,18 +88,18 @@ function OrgCard({ org, origin }: { org: Org; origin: string }) {
                 </div>
                 <Link
                   href={`/app/workspaces/${w.slug}`}
-                  className="shrink-0 rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+                  className="shrink-0 rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
                 >
                   Open
                 </Link>
               </div>
               <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 truncate rounded bg-neutral-900 px-2 py-1 font-mono text-[11px] text-emerald-300">
+                <code className="flex-1 truncate rounded bg-[rgba(10,27,18,0.72)] px-2 py-1 font-mono text-[11px] text-[#9AFF8D]">
                   {origin}{w.supportUrl}
                 </code>
                 <button
                   onClick={() => void copyUrl(w.supportUrl)}
-                  className="shrink-0 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300 hover:border-neutral-500"
+                  className="shrink-0 rounded-md border border-[rgba(119,255,117,0.25)] px-2 py-1 text-[11px] text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
                 >
                   {copied === w.supportUrl ? "Copied!" : "Copy URL"}
                 </button>
@@ -109,7 +109,7 @@ function OrgCard({ org, origin }: { org: Org; origin: string }) {
         </ul>
       )}
 
-      <div className="mt-3 border-t border-neutral-800 pt-3">
+      <div className="mt-3 border-t border-[rgba(119,255,117,0.14)] pt-3">
         <p className="text-xs text-neutral-400">New workspace in {org.name}</p>
         <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
           <input
@@ -117,27 +117,27 @@ function OrgCard({ org, origin }: { org: Org; origin: string }) {
             onChange={(e) => setName(e.target.value)}
             aria-label="Workspace name"
             placeholder="Workspace name"
-            className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+            className="rounded-md border border-[rgba(119,255,117,0.25)] bg-[#06100B] px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
           />
           <input
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
             aria-label="Workspace URL slug (optional)"
             placeholder="slug (optional)"
-            className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+            className="rounded-md border border-[rgba(119,255,117,0.25)] bg-[#06100B] px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
           />
           <input
             value={product}
             onChange={(e) => setProduct(e.target.value)}
             aria-label="Product name (optional)"
             placeholder="Product name (optional)"
-            className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+            className="rounded-md border border-[rgba(119,255,117,0.25)] bg-[#06100B] px-2 py-1.5 text-xs outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
           />
         </div>
         <button
           onClick={() => void create()}
           disabled={busy || name.trim().length < 2}
-          className="mt-1.5 rounded-md bg-emerald-500 px-4 py-1.5 text-xs font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
+          className="mt-1.5 rounded-md bg-[#77FF75] px-4 py-1.5 text-xs font-medium text-neutral-950 disabled:opacity-40 hover:bg-[#9AFF8D]"
         >
           {busy ? "Creating…" : "Create workspace"}
         </button>
@@ -212,7 +212,7 @@ export function AppHomeClient({ email }: { email: string }) {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-6">
-      <header className="flex items-center justify-between border-b border-neutral-800 pb-3">
+      <header className="flex items-center justify-between border-b border-[rgba(119,255,117,0.14)] pb-3">
         <div>
           <p className="text-xs uppercase tracking-widest text-neutral-500">Meros</p>
           <p className="text-sm text-neutral-300">Your organizations</p>
@@ -220,7 +220,7 @@ export function AppHomeClient({ email }: { email: string }) {
         </div>
         <button
           onClick={() => void logout()}
-          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+          className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
         >
           Sign out
         </button>
@@ -231,7 +231,7 @@ export function AppHomeClient({ email }: { email: string }) {
       {orgs === null ? (
         <p className="mt-6 text-xs text-neutral-500">Loading…</p>
       ) : orgs.length === 0 ? (
-        <div className="mt-6 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3">
+        <div className="mt-6 rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-4 py-3">
           <p className="text-sm font-medium text-neutral-100">Welcome — let&apos;s set up your support workspace</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-neutral-400">
             <li>Create your organization below.</li>
@@ -256,12 +256,12 @@ export function AppHomeClient({ email }: { email: string }) {
           onChange={(e) => setName(e.target.value)}
           aria-label="Organization name"
           placeholder="e.g. Acme Inc"
-          className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+          className="flex-1 rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
         />
         <button
           onClick={() => void createOrg()}
           disabled={busy || name.trim().length < 2}
-          className="rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
+          className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-[#9AFF8D]"
         >
           Create
         </button>

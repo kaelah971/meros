@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { EmptyState, StatusPill } from "@/components/meros-ui";
 import { FixCardItem, type FixCardView } from "@/components/fix-card-review";
 
 /** Staff Fix Cards view: client wrapper so review buttons update in place. */
@@ -24,7 +25,12 @@ export default function FixCardsView({
     <div>
       <p className="text-sm font-medium text-neutral-100">Pending review ({pending.length})</p>
       {pending.length === 0 ? (
-        <p className="mt-1 text-xs text-neutral-500">Nothing awaiting review.</p>
+        <div className="mt-2">
+          <EmptyState
+            title="No Fix Cards waiting for review"
+            body="Resolved issues with a grounded, reusable fix will appear here for approval."
+          />
+        </div>
       ) : (
         <ul className="mt-2 space-y-2">
           {pending.map((c) => (

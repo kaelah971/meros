@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { getOwnedWorkspace } from "@/lib/db";
 import { listWorkspaceConversations } from "@/lib/support-ops";
+import { EmptyState, StatusPill } from "@/components/meros-ui";
 
 /** Staff conversations view: workspace-scoped thread list. */
 export default async function ConversationsPage({
@@ -28,19 +29,25 @@ export default async function ConversationsPage({
         Conversations{filterCustomer ? " · filtered customer" : ""} ({rows.length})
       </p>
       {rows.length === 0 && (
-        <p className="mt-2 text-xs text-neutral-500">No conversations yet.</p>
+        <div className="mt-2">
+          <EmptyState
+            title="No conversations yet"
+            body="Share your support link to start helping customers. New threads appear here in real time."
+          />
+        </div>
       )}
       <ul className="mt-2 space-y-2">
         {rows.map((c) => (
           <li key={c.id}>
             <Link
               href={`/app/workspaces/${slug}/conversations/${c.id}`}
-              className="block rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 hover:border-neutral-600"
+              className="block rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-3 py-2 hover:border-[rgba(119,255,117,0.5)]"
             >
               <span className="text-xs font-medium text-neutral-100">{c.title}</span>
-              <span className="mt-0.5 block font-mono text-[11px] text-neutral-500">
-                {c.customer_display} · {c.status}
-                {c.last_message_at ? ` · ${new Date(c.last_message_at).toLocaleString()}` : ""}
+              <span className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[11px] text-neutral-500">
+                <span>{c.customer_display}</span>
+                <StatusPill status={c.status} />
+                {c.last_message_at ? <span>{new Date(c.last_message_at).toLocaleString()}</span> : ""}
               </span>
             </Link>
           </li>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { parseBlocks, type BlockNode, type InlineNode } from "@/lib/markdown";
 import { recordEvidence, shortBlob } from "@/lib/evidence";
 import { authClient } from "@/lib/better-auth-client";
+import { PageBackdrop } from "@/components/meros-ui";
 
 type ProvenanceItem = {
   plane: "private" | "shared";
@@ -39,7 +40,7 @@ function Inline({ nodes }: { nodes: InlineNode[] }) {
         ) : n.t === "italic" ? (
           <em key={i}>{n.v}</em>
         ) : n.t === "code" ? (
-          <code key={i} className="rounded bg-neutral-800 px-1 py-0.5 font-mono text-[12px] text-emerald-300">{n.v}</code>
+          <code key={i} className="rounded bg-[#0a140f] px-1 py-0.5 font-mono text-[12px] text-[#9AFF8D]">{n.v}</code>
         ) : (
           <span key={i}>{n.v}</span>
         ),
@@ -91,7 +92,7 @@ function MemoryLens({
   const shared = msg.provenance.filter((p) => p.plane === "shared");
   const noneUsed = priv.length === 0 && shared.length === 0;
   return (
-    <div className="mt-2 rounded-md border border-neutral-800 bg-neutral-950/60">
+    <div className="mt-2 rounded-md border border-[rgba(119,255,117,0.14)] bg-[#06100B]/60">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-neutral-400 hover:text-neutral-200"
@@ -107,9 +108,9 @@ function MemoryLens({
         <span aria-hidden>{open ? "▾" : "▸"}</span>
       </button>
       {open && (
-        <div className="space-y-3 border-t border-neutral-800 px-3 py-3 text-xs">
+        <div className="space-y-3 border-t border-[rgba(119,255,117,0.14)] px-3 py-3 text-xs">
           <div>
-            <p className="font-medium text-emerald-400">Your private memory</p>
+            <p className="font-medium text-[#77FF75]">Your private memory</p>
             {priv.length === 0 ? (
               <p className="mt-1 text-neutral-500">Not used for this answer.</p>
             ) : (
@@ -184,18 +185,18 @@ function CompareCard({
   if (priv.length > 0) used.push("private memory");
   if (shared.length > 0) used.push("shared support memory");
   return (
-    <div className="mt-2 overflow-hidden rounded-md border border-neutral-700">
-      <p className="bg-neutral-800/60 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-neutral-300">
+    <div className="mt-2 overflow-hidden rounded-md border border-[rgba(119,255,117,0.25)]">
+      <p className="bg-[rgba(10,27,18,0.9)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-neutral-300">
         Memory on vs off — same question, same conversation context
       </p>
-      <div className="grid gap-px bg-neutral-800 sm:grid-cols-2">
-        <div className="bg-neutral-950 p-3">
-          <p className="text-[11px] font-semibold text-emerald-400">WITH MEROS MEMORY</p>
+      <div className="grid gap-px bg-[#0a140f] sm:grid-cols-2">
+        <div className="bg-[#06100B] p-3">
+          <p className="text-[11px] font-semibold text-[#77FF75]">WITH MEROS MEMORY</p>
           <div className="mt-1.5 text-xs leading-5 text-neutral-200">
             <Markdown text={original.text} />
           </div>
         </div>
-        <div className="bg-neutral-950 p-3">
+        <div className="bg-[#06100B] p-3">
           <p className="text-[11px] font-semibold text-neutral-400">WITHOUT MEMORY</p>
           <p className="mt-1 text-[11px] text-neutral-500">Fresh generation · no long-term memory consulted</p>
           <div className="mt-1.5 text-xs leading-5 text-neutral-200">
@@ -203,7 +204,7 @@ function CompareCard({
           </div>
         </div>
       </div>
-      <div className="border-t border-neutral-800 bg-neutral-950 px-3 py-2 text-[11px] text-neutral-400">
+      <div className="border-t border-[rgba(119,255,117,0.14)] bg-[#06100B] px-3 py-2 text-[11px] text-neutral-400">
         <p className="font-medium text-neutral-300">Why this mattered</p>
         <p className="mt-0.5">
           Private memory: {priv.length > 0 ? `used (${priv.length})` : "not used"} · Shared memory:{" "}
@@ -570,9 +571,10 @@ export function SupportChat({
 
   if (!started) {
     return (
-      <main className="mx-auto max-w-xl px-6 py-16">
-        <p className="text-xs uppercase tracking-widest text-neutral-400">
-          Meros · Support memory that compounds
+      <main className="relative mx-auto max-w-xl px-6 py-16">
+        <PageBackdrop />
+        <p className="font-display relative text-[11px] tracking-[0.3em] text-[#4CA862]">
+          MEROS · SUPPORT MEMORY THAT COMPOUNDS
         </p>
         <h1 className="mt-3 text-3xl font-semibold">Solve it once. Remember it for everyone.</h1>
         <p className="mt-4 text-sm leading-6 text-neutral-300">
@@ -584,7 +586,7 @@ export function SupportChat({
         </p>
         <div className="mt-6 space-y-2">
           {lockWorkspace ? (
-            <p className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2.5 text-sm text-neutral-200">
+            <p className="rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm text-neutral-200">
               {workspaceName ? `${workspaceName} Support` : workspaceSlug}
             </p>
           ) : (
@@ -596,14 +598,14 @@ export function SupportChat({
                 aria-label="Workspace slug"
                 placeholder="e.g. acme"
                 autoComplete="off"
-                className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+                className="mt-1 w-full rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
               />
             </label>
           )}
           <button
             onClick={() => canStart && setStarted(true)}
             disabled={!canStart}
-            className="w-full rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
+            className="w-full rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-[#030806] disabled:opacity-40 hover:bg-[#9AFF8D]"
           >
             Continue
           </button>
@@ -616,21 +618,22 @@ export function SupportChat({
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-6">
-      <header className="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <div>
-          <p className="text-xs uppercase tracking-widest text-neutral-500">Meros</p>
-          <p className="text-sm text-neutral-300">{workspaceName ? `${workspaceName} Support` : "Support chat with memory"}</p>
-          <p className="text-[11px] text-neutral-500">
+    <main className="relative mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-6">
+      <PageBackdrop />
+      <header className="relative flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(119,255,117,0.14)] pb-3">
+        <div className="min-w-0">
+          <p className="font-display text-sm font-bold tracking-[0.18em] text-[#9AFF8D]">MEROS</p>
+          <p className="mt-0.5 truncate text-sm text-neutral-300">{workspaceName ? `${workspaceName} Support` : "Support chat with memory"}</p>
+          <p className="truncate text-[11px] text-neutral-500">
             {isAuth && sessionEmail ? `Signed in as ${sessionEmail}` : "Customer session"} · {workspaceSlug}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => void markResolved()}
             disabled={messages.length === 0 || !conversationId || resolving}
             title="Confirm this issue is resolved"
-            className="rounded-md border border-emerald-800 px-3 py-1.5 text-xs text-emerald-300 disabled:opacity-40 hover:border-emerald-600"
+            className="rounded-md border border-[rgba(119,255,117,0.35)] px-3 py-1.5 text-xs text-[#9AFF8D] disabled:opacity-40 hover:border-[rgba(119,255,117,0.5)]"
           >
             {resolving ? "Resolving…" : "Mark resolved"}
           </button>
@@ -640,14 +643,14 @@ export function SupportChat({
               if (historyList === null) void loadHistoryList();
             }}
             title="Your previous support conversations"
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+            className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
           >
             History
           </button>
           <button
             onClick={newConversation}
             title="Same user, fresh thread (your memories stay)"
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+            className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
           >
             New conversation
           </button>
@@ -655,7 +658,7 @@ export function SupportChat({
             <button
               onClick={() => void signOutHere()}
               title="Sign out of this support session"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+              className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
             >
               Sign out
             </button>
@@ -664,7 +667,7 @@ export function SupportChat({
             <button
               onClick={switchWorkspace}
               title="Full reset: choose a different workspace"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+              className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
             >
               Switch workspace
             </button>
@@ -672,7 +675,7 @@ export function SupportChat({
           <Link
             href="/evidence"
             title="Session-only proof: writes, comparisons, demo card"
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+            className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
           >
             Evidence
           </Link>
@@ -681,7 +684,7 @@ export function SupportChat({
 
       <div className="flex-1 space-y-4 py-6">
         {messages.length === 0 && (
-          <p className="rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-400">
+          <p className="rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-4 py-3 text-sm text-neutral-400">
             Ask a support question. If Meros remembers relevant context from
             your private memory, it will use it — and show you exactly what it
             used below each answer.
@@ -690,20 +693,20 @@ export function SupportChat({
         {messages.map((m, i) =>
           m.kind === "user" ? (
             <div key={i} className="flex justify-end">
-              <p className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-emerald-600 px-4 py-2.5 text-sm text-white">
+              <p className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-[rgba(119,255,117,0.12)] border border-[rgba(119,255,117,0.3)] px-4 py-2.5 text-sm text-white">
                 {m.text}
               </p>
             </div>
           ) : (
             <div key={i} className="max-w-[95%]">
-              <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-sm leading-6 text-neutral-100">
+              <div className="rounded-lg border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-4 py-2.5 text-sm leading-6 text-neutral-100">
                 <Markdown text={m.text} />
               </div>
               <MemoryLens msg={m} historyTurns={m.historyTurns} />
               {(m.memoryUsed.private || m.memoryUsed.shared) && !m.compare && (
                 <button
                   onClick={() => void runCompare(i)}
-                  className="mt-1.5 rounded-md border border-neutral-700 px-3 py-1.5 text-[11px] text-neutral-300 hover:border-emerald-700 hover:text-emerald-300"
+                  className="mt-1.5 rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-[11px] text-neutral-300 hover:border-[rgba(119,255,117,0.5)] hover:text-[#9AFF8D]"
                 >
                   Compare without memory
                 </button>
@@ -727,7 +730,7 @@ export function SupportChat({
           ),
         )}
         {showHistory && (
-          <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
+          <div className="rounded-lg border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-4 py-3">
             <p className="text-xs font-medium text-neutral-200">Previous conversations</p>
             {historyList === null ? (
               <p className="mt-1 text-[11px] text-neutral-500">Loading…</p>
@@ -739,7 +742,7 @@ export function SupportChat({
                   <li key={c.id}>
                     <button
                       onClick={() => void openConversation(c.id)}
-                      className="w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-left hover:border-neutral-600"
+                      className="w-full rounded-md border border-[rgba(119,255,117,0.14)] bg-[#06100B] px-3 py-2 text-left hover:border-[rgba(119,255,117,0.5)]"
                     >
                       <span className="block truncate text-xs text-neutral-100">{c.title}</span>
                       <span className="mt-0.5 block font-mono text-[10px] text-neutral-500">
@@ -753,16 +756,16 @@ export function SupportChat({
           </div>
         )}
         {resolvedCard && (
-          <div className="rounded-lg border border-emerald-900 bg-neutral-900 px-4 py-3">
-            <p className="text-sm font-medium text-emerald-300">Resolved. This solution has been sent to the support team for review.</p>
+          <div className="rounded-lg border border-emerald-900 bg-[rgba(10,27,18,0.72)] px-4 py-3">
+            <p className="text-sm font-medium text-[#9AFF8D]">Resolved. This solution has been sent to the support team for review.</p>
             {resolvedCard.candidateText && (
-              <pre className="mt-2 whitespace-pre-wrap rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-xs leading-5 text-neutral-200">
+              <pre className="mt-2 whitespace-pre-wrap rounded-md border border-[rgba(119,255,117,0.14)] bg-[#06100B] px-3 py-2 font-mono text-xs leading-5 text-neutral-200">
                 {resolvedCard.candidateText}
               </pre>
             )}
             <button
               onClick={() => setResolvedCard(null)}
-              className="mt-3 rounded-md border border-neutral-700 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-500"
+              className="mt-3 rounded-md border border-[rgba(119,255,117,0.25)] px-4 py-2 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
             >
               Dismiss
             </button>
@@ -779,7 +782,7 @@ export function SupportChat({
         <div ref={bottomRef} />
       </div>
 
-      <div className="sticky bottom-0 border-t border-neutral-800 bg-neutral-950 py-3">
+      <div className="sticky bottom-0 border-t border-[rgba(119,255,117,0.14)] bg-[#06100B] py-3">
         <div className="flex gap-2">
           <input
             value={draft}
@@ -792,12 +795,12 @@ export function SupportChat({
             }}
             aria-label="Describe your issue"
             placeholder="Describe your issue…"
-            className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+            className="flex-1 rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
           />
           <button
             onClick={send}
             disabled={sending || !draft.trim()}
-            className="rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
+            className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-[#030806] disabled:opacity-40 hover:bg-[#9AFF8D]"
           >
             Send
           </button>

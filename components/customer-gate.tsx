@@ -1,6 +1,7 @@
 "use client";
 
 import { authClient } from "@/lib/better-auth-client";
+import { PageBackdrop } from "@/components/meros-ui";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -48,15 +49,16 @@ export function CustomerGate({
   };
 
   return (
-    <main className="mx-auto max-w-md px-6 py-16">
-      <p className="text-xs uppercase tracking-widest text-neutral-400">
-        Meros · {workspaceName} Support
+    <main className="relative mx-auto max-w-md px-6 py-16">
+      <PageBackdrop />
+      <p className="font-display relative text-[11px] tracking-[0.3em] text-[#4CA862]">
+        MEROS · {workspaceName.toUpperCase()} SUPPORT
       </p>
       <h1 className="mt-3 text-2xl font-semibold">Get help, pick up where you left off</h1>
       <p className="mt-2 text-sm leading-6 text-neutral-300">
         Sign in so Meros remembers your private context across sessions.
       </p>
-      <div className="mt-5 flex gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-1 text-xs">
+      <div className="mt-5 flex gap-1 rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] p-1 text-xs">
         {(["signin", "signup"] as const).map((t) => (
           <button
             key={t}
@@ -65,7 +67,7 @@ export function CustomerGate({
               setError("");
             }}
             className={`flex-1 rounded px-3 py-1.5 font-medium ${
-              tab === t ? "bg-neutral-700 text-neutral-100" : "text-neutral-400 hover:text-neutral-200"
+              tab === t ? "bg-[rgba(119,255,117,0.12)] text-[#9AFF8D]" : "text-neutral-400 hover:text-neutral-200"
             }`}
           >
             {t === "signin" ? "Sign in" : "Create account"}
@@ -80,7 +82,7 @@ export function CustomerGate({
             onChange={(e) => setEmail(e.target.value)}
             type="email"
             autoComplete="email"
-            className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+            className="mt-1 w-full rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
           />
         </label>
         {tab === "signup" && (
@@ -90,7 +92,7 @@ export function CustomerGate({
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoComplete="name"
-              className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+              className="mt-1 w-full rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
             />
           </label>
         )}
@@ -104,14 +106,14 @@ export function CustomerGate({
             onKeyDown={(e) => {
               if (e.key === "Enter") void submit();
             }}
-            className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+            className="mt-1 w-full rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
           />
         </label>
         {error && <p className="text-xs text-red-300">{error}</p>}
         <button
           onClick={() => void submit()}
           disabled={busy || !email.trim() || !password}
-          className="w-full rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
+          className="w-full rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-[#9AFF8D]"
         >
           {busy ? "Please wait…" : tab === "signin" ? "Sign in" : "Create account"}
         </button>
