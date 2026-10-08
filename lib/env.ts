@@ -48,6 +48,19 @@ export function isNeonConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL?.trim());
 }
 
+/**
+ * Legacy access-code identity (P0/P5 bootstrap) is a LOCAL DEV diagnostic
+ * only. It is enabled solely when the flag is explicitly "true" AND the
+ * runtime is not production — production refuses legacy identity even if
+ * the flag is accidentally set. Disabled by default (unset/false).
+ */
+export function isLegacyDevIdentityEnabled(): boolean {
+  return (
+    process.env.MEROS_ENABLE_LEGACY_DEV_IDENTITY === "true" &&
+    process.env.NODE_ENV !== "production"
+  );
+}
+
 export function isGeminiConfigured(): boolean {
   return Boolean(
     process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim(),

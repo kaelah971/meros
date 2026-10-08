@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { generateJson, GeminiNotConfiguredError, type ChatTurn } from "@/lib/gemini";
 import { previewUserId } from "@/lib/identity";
-import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
+import { identityError, resolveProductIdentity } from "@/lib/product-identity";
+import type { AuthenticatedCustomer } from "@/lib/tenant-store";
 import {
   formatSharedFix,
   parseSharedFix,
@@ -23,25 +24,20 @@ Rules:
  * Writes NOTHING to Walrus — preview only. The human gate decides next.
  */
 export async function POST(req: Request) {
-  // NOTE: workspaceSlug + accessCode are TEMPORARY P5 bootstrap identity (replaced by auth in P6/P7).
-  let body: { workspaceSlug?: unknown; accessCode?: unknown; history?: unknown };
+  // NOTE: P7 product flow uses session auth (legacy access-code path is dev-only).
+  let body: { workspaceSlug?: unknown; history?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
 
-  let tenant: Awaited<ReturnType<typeof resolveTenant>>;
+  let tenant: AuthenticatedCustomer;
   try {
-    tenant = await resolveTenant(body.workspaceSlug, body.accessCode);
+    tenant = await resolveProductIdentity(body);
   } catch (e) {
-    if (e instanceof UnknownWorkspaceError) {
-      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
-    }
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
-      { status: 400 },
-    );
+    const err = identityError(e);
+    return NextResponse.json({ ok: false, error: err.message }, { status: err.status });
   }
 
   const history: ChatTurn[] = Array.isArray(body.history)

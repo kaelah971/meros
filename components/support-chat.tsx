@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseBlocks, type BlockNode, type InlineNode } from "@/lib/markdown";
 import { recordEvidence, shortBlob } from "@/lib/evidence";
+import { authClient } from "@/lib/better-auth-client";
 
 type ProvenanceItem = {
   plane: "private" | "shared";
@@ -236,7 +237,6 @@ function CompareCard({
 /** Explicit capture after the answer renders. Returns a short UI note. */
 async function captureTurn(
   workspaceSlug: string,
-  accessCode: string,
   message: string,
   answer: string,
   history: { role: "user" | "assistant"; text: string }[],
@@ -246,7 +246,7 @@ async function captureTurn(
     const res = await fetch("/api/memory/capture", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceSlug, accessCode, message, answer, history, knownTexts }),
+      body: JSON.stringify({ workspaceSlug, message, answer, history, knownTexts }),
     });
     const data = await res.json();
     if (!data.ok) return "Private memory save unavailable right now.";
@@ -269,12 +269,10 @@ async function captureTurn(
 
 function FixCard({
   workspaceSlug,
-  accessCode,
   history,
   onClose,
 }: {
   workspaceSlug: string;
-  accessCode: string;
   history: { role: "user" | "assistant"; text: string }[];
   onClose: () => void;
 }) {
@@ -286,7 +284,7 @@ function FixCard({
       const res = await fetch("/api/fixes/candidate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspaceSlug, accessCode, history }),
+        body: JSON.stringify({ workspaceSlug, history }),
       });
       const data = await res.json();
       if (data.ok && data.candidate) {
@@ -299,7 +297,7 @@ function FixCard({
     } catch (e) {
       setState({ status: "failed", error: e instanceof Error ? e.message : "Network error." });
     }
-  }, [workspaceSlug, accessCode, history]);
+  }, [workspaceSlug, history]);
 
   useEffect(() => {
     void load();
@@ -311,7 +309,7 @@ function FixCard({
       const res = await fetch("/api/fixes/promote", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspaceSlug, accessCode, candidate }),
+        body: JSON.stringify({ workspaceSlug, candidate }),
       });
       const data = await res.json();
       if (data.ok && data.status === "stored") {
@@ -403,17 +401,20 @@ export function SupportChat({
   initialWorkspaceSlug = "",
   initialWorkspaceName = "",
   lockWorkspace = false,
+  sessionEmail = null,
 }: {
   initialWorkspaceSlug?: string;
   initialWorkspaceName?: string;
   lockWorkspace?: boolean;
+  /** Present on the real product route: Better Auth session identity. */
+  sessionEmail?: string | null;
 } = {}) {
-  // NOTE: workspaceSlug + accessCode are TEMPORARY P5 bootstrap identity
-  // (replaced by real auth in P6/P7). The server derives everything else.
+  // Product identity is the Better Auth session. No access codes anywhere:
+  // the dev console additionally requires the server-side dev flag.
+  const isAuth = sessionEmail != null && sessionEmail !== "";
   const [workspaceSlug, setWorkspaceSlug] = useState(initialWorkspaceSlug);
   const [workspaceName, setWorkspaceName] = useState(initialWorkspaceName);
-  const [accessCode, setAccessCode] = useState("");
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(isAuth);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -447,11 +448,15 @@ export function SupportChat({
     scrollDown();
   }, [transcriptForFix]);
 
-  const canStart = workspaceSlug.trim().length >= 2 && accessCode.trim().length >= 4;
+  const canStart = workspaceSlug.trim().length >= 2;
+
+  // Identity envelope: workspace route context only. Access codes are never
+  // sent — session auth (product) or nothing (dev console, server-gated).
+  const identityBody = (extra: Record<string, unknown>) => ({ workspaceSlug, ...extra });
 
   const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text || sending || !accessCode.trim() || !workspaceSlug.trim()) return;
+    if (!text || sending || !workspaceSlug.trim()) return;
     setSending(true);
     setError("");
     const history = messages.flatMap((m): { role: "user" | "assistant"; text: string }[] =>
@@ -466,7 +471,7 @@ export function SupportChat({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspaceSlug, accessCode, message: text, history }),
+        body: JSON.stringify(identityBody({ message: text, history })),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -499,7 +504,7 @@ export function SupportChat({
       // chat latency). The capture endpoint still awaits real Walrus
       // completion per fact and reports honest per-fact status.
       if (data.workspace?.name) setWorkspaceName(data.workspace.name);
-      void captureTurn(workspaceSlug, accessCode, text, data.answer, history, knownTexts).then((note) => {
+      void captureTurn(workspaceSlug, text, data.answer, history, knownTexts).then((note) => {
         if (!note) return;
         setMessages((prev) =>
           prev.map((m, idx) =>
@@ -512,7 +517,7 @@ export function SupportChat({
     } finally {
       setSending(false);
     }
-  }, [draft, sending, workspaceSlug, accessCode, messages, openFixCard]);
+  }, [draft, sending, workspaceSlug, messages, openFixCard, identityBody]);
 
   const runCompare = useCallback(async (idx: number) => {
     // Controlled rerun: same user message + same conversation context, but
@@ -528,7 +533,7 @@ export function SupportChat({
       const res = await fetch("/api/compare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspaceSlug, accessCode, message: prev.text, history: current.historySnapshot }),
+        body: JSON.stringify(identityBody({ message: prev.text, history: current.historySnapshot })),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -570,7 +575,7 @@ export function SupportChat({
         ),
       );
     }
-  }, [messages, workspaceSlug, accessCode]);
+  }, [messages, workspaceSlug, identityBody]);
 
   const newConversation = useCallback(() => {
     // Same user, fresh thread. Long-term memory stays in Walrus under the
@@ -582,16 +587,14 @@ export function SupportChat({
     setFixOpen(false);
   }, []);
 
-  const switchUser = useCallback(() => {
-    // Different customer, SAME workspace: drop the thread and the access
-    // code, back to the customer gate with the workspace kept. Walrus
-    // memories are untouched (server-side).
-    setMessages([]);
-    setError("");
-    setDraft("");
-    setFixOpen(false);
-    setAccessCode("");
-    setStarted(false);
+  // Product sign-out: Better Auth clears the session server-side, then a
+  // full reload lets the server route render the customer gate again.
+  const signOutHere = useCallback(async () => {
+    try {
+      await authClient.signOut();
+    } finally {
+      window.location.reload();
+    }
   }, []);
 
   const switchWorkspace = useCallback(() => {
@@ -602,7 +605,6 @@ export function SupportChat({
     setError("");
     setDraft("");
     setFixOpen(false);
-    setAccessCode("");
     if (!lockWorkspace) {
       setWorkspaceSlug("");
       setWorkspaceName("");
@@ -618,11 +620,11 @@ export function SupportChat({
         </p>
         <h1 className="mt-3 text-3xl font-semibold">Solve it once. Remember it for everyone.</h1>
         <p className="mt-4 text-sm leading-6 text-neutral-300">
-          Enter your workspace and customer access code to pick up your private
-          support memory. Memory never crosses workspace boundaries.
+          Enter your workspace to pick up your private support memory.
+          Memory never crosses workspace boundaries.
         </p>
         <p className="mt-2 inline-block rounded border border-amber-800 bg-amber-950/40 px-2 py-1 text-[11px] text-amber-300">
-          Temporary demo identity — real sign-in arrives in a later slice.
+          Development diagnostic console — disabled in production. Sign-in is still required.
         </p>
         <div className="mt-6 space-y-2">
           {lockWorkspace ? (
@@ -641,19 +643,6 @@ export function SupportChat({
               />
             </label>
           )}
-          <label className="block text-xs text-neutral-400">
-            Customer access code
-            <input
-              value={accessCode}
-              onChange={(e) => setAccessCode(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && canStart) setStarted(true);
-              }}
-              placeholder="e.g. P0-ALICE-01"
-              autoComplete="off"
-              className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
-            />
-          </label>
           <button
             onClick={() => canStart && setStarted(true)}
             disabled={!canStart}
@@ -663,8 +652,7 @@ export function SupportChat({
           </button>
         </div>
         <p className="mt-3 text-xs text-neutral-500">
-          New here? Any code of 4+ characters works — a brand-new code simply
-          starts with no memory yet.
+          New workspaces pick up no memory yet — memory accrues from real conversations.
         </p>
       </main>
     );
@@ -676,7 +664,9 @@ export function SupportChat({
         <div>
           <p className="text-xs uppercase tracking-widest text-neutral-500">Meros</p>
           <p className="text-sm text-neutral-300">{workspaceName ? `${workspaceName} Support` : "Support chat with memory"}</p>
-          <p className="text-[11px] text-neutral-500">Customer session · {workspaceSlug}</p>
+          <p className="text-[11px] text-neutral-500">
+            {isAuth && sessionEmail ? `Signed in as ${sessionEmail}` : "Customer session"} · {workspaceSlug}
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -693,13 +683,15 @@ export function SupportChat({
           >
             New conversation
           </button>
-          <button
-            onClick={switchUser}
-            title="Same workspace, different customer (Walrus memories untouched)"
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
-          >
-            Switch user
-          </button>
+          {isAuth ? (
+            <button
+              onClick={() => void signOutHere()}
+              title="Sign out of this support session"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+            >
+              Sign out
+            </button>
+          ) : null}
           {!lockWorkspace && (
             <button
               onClick={switchWorkspace}
@@ -769,7 +761,6 @@ export function SupportChat({
         {fixOpen && (
           <FixCard
             workspaceSlug={workspaceSlug}
-            accessCode={accessCode}
             history={fixHistory}
             onClose={() => setFixOpen(false)}
           />

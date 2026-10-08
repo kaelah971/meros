@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
+import { isLegacyDevIdentityEnabled } from "@/lib/env";
 import { identityFromAccessCode, previewUserId } from "@/lib/identity";
 import { WalrusNotConfiguredError, recallPrivate } from "@/lib/walrus";
 
 export async function POST(req: Request) {
+  // DEV-ONLY legacy endpoint: raw accessCode in, v1 Walrus namespace out.
+  // Never available in production, regardless of client input.
+  if (!isLegacyDevIdentityEnabled()) {
+    return NextResponse.json(
+      { ok: false, error: "legacy dev identity is disabled" },
+      { status: 403 },
+    );
+  }
   let body: { accessCode?: unknown; query?: unknown; topK?: unknown };
   try {
     body = await req.json();

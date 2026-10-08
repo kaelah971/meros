@@ -45,9 +45,22 @@ export function bootstrapHashForCode(normalizedCode: string, salt: string): stri
  * Immutable customer ID, scoped to ONE workspace. The same access code in
  * two workspaces yields two different customers — tenant isolation is
  * structural, not a query filter.
+ * LEGACY (P5 access-code bootstrap). Product flow uses customerIdForAuth.
  */
 export function customerIdFor(workspaceId: string, bootstrapHash: string): string {
   return sha32Hex(`meros:v1:cu:${workspaceId}:${bootstrapHash}`);
+}
+
+/**
+ * Immutable customer ID for a Better Auth user inside ONE workspace.
+ * Deterministic in (workspaceId, authUserId): no DB read is needed to
+ * derive it, so returning customers always land on the same ID and the
+ * same v2 private namespace. The same auth user in two workspaces yields
+ * two different customers. Never derived from email, name, or tokens.
+ */
+export function customerIdForAuth(workspaceId: string, authUserId: string): string {
+  if (!authUserId || authUserId.length > 128) throw new Error("invalid auth user id");
+  return sha32Hex(`meros:v2:cu:${workspaceId}:auth:${authUserId}`);
 }
 
 /** Workspace-scoped private namespace. Never global, never client-supplied. */

@@ -2,13 +2,19 @@ import "server-only";
 import { getIdSalt, isNeonConfigured } from "./env";
 import {
   dbAvailable,
+  ensureAuthCustomer,
   ensureCustomer,
   ensureOrganization,
   ensureWorkspace,
+  getCustomerByWorkspaceAndAuth,
   getWorkspaceBySlug,
 } from "./db";
 import {
+  customerIdForAuth,
+  derivePrivateNamespaceV2,
+  deriveSharedNamespaceV2,
   displayNameForSlug,
+  normalizeSlug,
   organizationIdForSlug,
   resolveTenantIds,
   workspaceIdForSlug,
@@ -106,6 +112,85 @@ export async function resolveTenant(
       productName: row.product_name,
     },
     persisted: true,
+  };
+}
+
+export type AuthenticatedCustomer = {
+  workspaceSlug: string;
+  workspaceId: string;
+  organizationId: string;
+  customerId: string;
+  authUserId: string;
+  privateNamespace: string;
+  sharedNamespace: string;
+  workspace: {
+    slug: string;
+    name: string;
+    productName: string | null;
+  };
+  /** True only when the customer row was actually persisted in Neon. */
+  persisted: boolean;
+  /** True when this call created the customer row (best-effort). */
+  created: boolean;
+};
+
+/**
+ * Server-side product identity: Better Auth user + workspace slug →
+ * workspace-scoped customer. Creates the customer row idempotently on
+ * first visit. Performs ZERO Walrus writes. Client supplies neither
+ * customerId nor namespace — both are derived here from immutable IDs.
+ */
+export async function resolveAuthenticatedCustomer(
+  rawSlug: unknown,
+  authUser: { id: string; email: string; displayName: string | null },
+): Promise<AuthenticatedCustomer> {
+  const workspaceSlug = normalizeSlug(rawSlug);
+  const workspaceId = workspaceIdForSlug(workspaceSlug);
+  const customerId = customerIdForAuth(workspaceId, authUser.id);
+  const base = {
+    workspaceSlug,
+    workspaceId,
+    customerId,
+    authUserId: authUser.id,
+    privateNamespace: derivePrivateNamespaceV2(workspaceId, customerId),
+    sharedNamespace: deriveSharedNamespaceV2(workspaceId),
+  };
+
+  if (!(await dbAvailable())) {
+    return {
+      ...base,
+      organizationId: organizationIdForSlug(workspaceSlug),
+      workspace: {
+        slug: workspaceSlug,
+        name: displayNameForSlug(workspaceSlug),
+        productName: null,
+      },
+      persisted: false,
+      created: false,
+    };
+  }
+
+  const row = await getWorkspaceBySlug(workspaceSlug);
+  if (!row) throw new UnknownWorkspaceError(workspaceSlug);
+  if (row.id !== workspaceId) {
+    throw new Error(`Workspace registry mismatch for "${workspaceSlug}" — refusing to derive namespaces.`);
+  }
+  const existing = await getCustomerByWorkspaceAndAuth(workspaceId, authUser.id);
+  const displayName = authUser.displayName ?? authUser.email.split("@")[0] ?? null;
+  if (!existing) {
+    await ensureAuthCustomer({
+      id: customerId,
+      workspaceId,
+      authUserId: authUser.id,
+      displayName,
+    });
+  }
+  return {
+    ...base,
+    organizationId: row.organization_id,
+    workspace: { slug: row.slug, name: row.name, productName: row.product_name },
+    persisted: true,
+    created: !existing,
   };
 }
 

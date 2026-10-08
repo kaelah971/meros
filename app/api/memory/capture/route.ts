@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { generateJson, GeminiNotConfiguredError } from "@/lib/gemini";
 import { previewUserId } from "@/lib/identity";
-import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
+import { identityError, resolveProductIdentity } from "@/lib/product-identity";
+import type { AuthenticatedCustomer } from "@/lib/tenant-store";
 import type { ChatTurn } from "@/lib/gemini";
 import {
   dropKnownFacts,
@@ -34,7 +35,6 @@ export type CaptureResult = {
 export async function POST(req: Request) {
   let body: {
     workspaceSlug?: unknown;
-    accessCode?: unknown;
     message?: unknown;
     answer?: unknown;
     history?: unknown;
@@ -47,17 +47,12 @@ export async function POST(req: Request) {
   }
 
   // Facts land in the CURRENT workspace/customer scope only.
-  let tenant: Awaited<ReturnType<typeof resolveTenant>>;
+  let tenant: AuthenticatedCustomer;
   try {
-    tenant = await resolveTenant(body.workspaceSlug, body.accessCode);
+    tenant = await resolveProductIdentity(body);
   } catch (e) {
-    if (e instanceof UnknownWorkspaceError) {
-      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
-    }
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
-      { status: 400 },
-    );
+    const err = identityError(e);
+    return NextResponse.json({ ok: false, error: err.message }, { status: err.status });
   }
 
   const message = typeof body.message === "string" ? body.message.trim() : "";

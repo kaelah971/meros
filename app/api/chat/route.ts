@@ -9,7 +9,8 @@ import {
 import { GeminiNotConfiguredError, generateSupportAnswer, type ChatTurn } from "@/lib/gemini";
 import { previewUserId } from "@/lib/identity";
 import { buildRecallQuery, detectResolution } from "@/lib/support-memory";
-import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
+import { identityError, resolveProductIdentity } from "@/lib/product-identity";
+import type { AuthenticatedCustomer } from "@/lib/tenant-store";
 import { CHAT_RECALL_TIMEOUT_MS, recallBounded } from "@/lib/walrus";
 import { isWalrusConfigured, walrusBlocker } from "@/lib/env";
 
@@ -39,26 +40,25 @@ export type ProvenanceItem = {
 };
 
 export async function POST(req: Request) {
-  let body: { workspaceSlug?: unknown; accessCode?: unknown; message?: unknown; history?: unknown }; // NOTE: workspaceSlug + accessCode are TEMPORARY P5 bootstrap identity (replaced by auth in P6/P7).
+  // Product identity is the Better Auth session. Client supplies only the
+  // workspace route context — never customerId, accessCode, or namespaces.
+  let body: { workspaceSlug?: unknown; message?: unknown; history?: unknown }; // NOTE: P7 product flow uses session auth (legacy /chat access-code path is dev-only).
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
 
-  // Server resolves workspace + customer and derives BOTH v2 namespaces.
-  // Client supplies only (workspaceSlug, accessCode) — never IDs/namespaces.
-  let tenant: Awaited<ReturnType<typeof resolveTenant>>;
+  // Server resolves the signed-in user + workspace customer and derives
+  // BOTH v2 namespaces. Anonymous callers are rejected before any recall.
+  // Session-required product identity. resolveProductIdentity throws 401
+  // when anonymous; any accessCode present is never consulted.
+  let tenant: AuthenticatedCustomer;
   try {
-    tenant = await resolveTenant(body.workspaceSlug, body.accessCode);
+    tenant = await resolveProductIdentity(body);
   } catch (e) {
-    if (e instanceof UnknownWorkspaceError) {
-      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
-    }
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
-      { status: 400 },
-    );
+    const err = identityError(e);
+    return NextResponse.json({ ok: false, error: err.message }, { status: err.status });
   }
 
   const message = typeof body.message === "string" ? body.message.trim() : "";

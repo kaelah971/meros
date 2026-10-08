@@ -159,7 +159,7 @@ export async function recallBounded(
 /**
  * Write text into an EXPLICIT server-derived namespace and wait for Walrus
  * completion. All v2 tenant writes go through here; callers pass the
- * namespace from resolveTenant() — never from the client.
+ * namespace from resolveAuthenticatedCustomer() — never from the client.
  */
 export async function rememberInNamespace(
   namespace: string,

@@ -61,6 +61,14 @@ create table if not exists customers (
 
 create index if not exists customers_workspace_idx on customers (workspace_id);
 
+-- Meros P7 real customer identity. A workspace customer maps to a Better
+-- Auth user; the (workspace_id, auth_user_id) pair is the product identity.
+-- bootstrap_identity_hash is now NULLABLE legacy (P5 access-code rows keep
+-- their values; auth-backed rows use auth_user_id instead).
+alter table customers add column if not exists auth_user_id text references "user"(id) on delete cascade;
+alter table customers alter column bootstrap_identity_hash drop not null;
+create unique index if not exists customers_workspace_auth_unique on customers (workspace_id, auth_user_id);
+
 -- Meros P6 owner accounts. NOTE: the pre-existing `users` table above holds
 -- P0 customer bootstrap identities and is left untouched; platform owners
 -- live in `platform_users` so no FK migration is ever needed.

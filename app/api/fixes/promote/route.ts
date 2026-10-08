@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { previewUserId } from "@/lib/identity";
 import { validateSharedCandidate } from "@/lib/support-memory";
-import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
+import { identityError, resolveProductIdentity } from "@/lib/product-identity";
+import type { AuthenticatedCustomer } from "@/lib/tenant-store";
 import { WalrusNotConfiguredError, rememberInNamespace } from "@/lib/walrus";
 
 /**
@@ -10,8 +11,8 @@ import { WalrusNotConfiguredError, rememberInNamespace } from "@/lib/walrus";
  * derived server-side — the client can never supply it.
  */
 export async function POST(req: Request) {
-  // NOTE: workspaceSlug + accessCode are TEMPORARY P5 bootstrap identity (replaced by auth in P6/P7).
-  let body: { workspaceSlug?: unknown; accessCode?: unknown; candidate?: unknown };
+  // NOTE: P7 product flow uses session auth (legacy access-code path is dev-only).
+  let body: { workspaceSlug?: unknown; candidate?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -20,17 +21,12 @@ export async function POST(req: Request) {
 
   // The CURRENT workspace is resolved server-side: the client can never
   // choose which workspace receives the Fix Card.
-  let tenant: Awaited<ReturnType<typeof resolveTenant>>;
+  let tenant: AuthenticatedCustomer;
   try {
-    tenant = await resolveTenant(body.workspaceSlug, body.accessCode);
+    tenant = await resolveProductIdentity(body);
   } catch (e) {
-    if (e instanceof UnknownWorkspaceError) {
-      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
-    }
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
-      { status: 400 },
-    );
+    const err = identityError(e);
+    return NextResponse.json({ ok: false, error: err.message }, { status: err.status });
   }
 
   if (typeof body.candidate !== "string") {

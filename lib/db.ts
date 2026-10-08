@@ -262,6 +262,56 @@ export async function ensureCustomer(input: {
   `;
 }
 
+export type CustomerRow = {
+  id: string;
+  workspace_id: string;
+  display_name: string | null;
+  bootstrap_identity_hash: string | null;
+  auth_user_id: string | null;
+};
+
+export async function getCustomerByWorkspaceAndAuth(
+  workspaceId: string,
+  authUserId: string,
+): Promise<CustomerRow | null> {
+  const sql = await getSql();
+  if (!sql) return null;
+  const rows = (await sql`
+    select id, workspace_id, display_name, bootstrap_identity_hash, auth_user_id
+    from customers where workspace_id = ${workspaceId} and auth_user_id = ${authUserId} limit 1
+  `) as unknown as CustomerRow[];
+  return rows[0] ?? null;
+}
+
+/**
+ * Idempotent find-or-create for an auth-backed workspace customer.
+ * The row id is the deterministic customerIdForAuth value, so concurrent
+ * creates converge. Performs ZERO Walrus writes.
+ */
+export async function ensureAuthCustomer(input: {
+  id: string;
+  workspaceId: string;
+  authUserId: string;
+  displayName: string | null;
+}): Promise<CustomerRow> {
+  const sql = await getSql();
+  if (!sql) throw new Error("database unavailable");
+  const rows = (await sql`
+    insert into customers (id, workspace_id, auth_user_id, display_name)
+    values (${input.id}, ${input.workspaceId}, ${input.authUserId}, ${input.displayName})
+    on conflict (id) do update set updated_at = now(),
+      display_name = coalesce(excluded.display_name, customers.display_name)
+    returning id, workspace_id, display_name, bootstrap_identity_hash, auth_user_id
+  `) as unknown as CustomerRow[];
+  const row = rows[0];
+  if (!row) throw new Error("customer upsert failed");
+  // Defensive: a colliding deterministic id must belong to this auth user.
+  if (row.auth_user_id !== input.authUserId) {
+    throw new Error("customer identity conflict — refusing to proceed");
+  }
+  return row;
+}
+
 export function hashAccessCodeForDb(normalizedCode: string, salt: string): string {
   // Separate DB-level hash; the raw code is never stored.
   // eslint-disable-next-line @typescript-eslint/no-require-imports

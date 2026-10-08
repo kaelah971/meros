@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isLegacyDevIdentityEnabled } from "@/lib/env";
 import { previewUserId } from "@/lib/identity";
 import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
 
@@ -8,6 +9,13 @@ import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
  * namespaces, or anything the client could replay as identity.
  */
 export async function POST(req: Request) {
+  // DEV-ONLY legacy bootstrap oracle. Never available in production.
+  if (!isLegacyDevIdentityEnabled()) {
+    return NextResponse.json(
+      { ok: false, error: "legacy dev identity is disabled" },
+      { status: 403 },
+    );
+  }
   let body: { workspaceSlug?: unknown; accessCode?: unknown };
   try {
     body = await req.json();

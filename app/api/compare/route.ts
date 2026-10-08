@@ -6,7 +6,7 @@ import {
   getPrimaryModel,
   type ChatTurn,
 } from "@/lib/gemini";
-import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
+import { identityError, resolveProductIdentity } from "@/lib/product-identity";
 
 const MAX_HISTORY_TURNS = 12;
 const MAX_TEXT_CHARS = 2000;
@@ -33,25 +33,20 @@ function cleanTurns(raw: unknown): ChatTurn[] {
  * no-memory system instruction, never a redacted original.
  */
 export async function POST(req: Request) {
-  let body: { workspaceSlug?: unknown; accessCode?: unknown; message?: unknown; history?: unknown };
+  let body: { workspaceSlug?: unknown; message?: unknown; history?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
 
-  // Gate-only check: validates the bootstrap without touching Walrus.
-  // resolveTenant is imported for validation only; its IDs are discarded.
+  // Gate-only check: validates session + workspace without touching Walrus.
+  // Anonymous callers get 401; accessCode (if any) is never consulted.
   try {
-    await resolveTenant(body.workspaceSlug, body.accessCode);
+    await resolveProductIdentity(body);
   } catch (e) {
-    if (e instanceof UnknownWorkspaceError) {
-      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
-    }
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
-      { status: 400 },
-    );
+    const err = identityError(e);
+    return NextResponse.json({ ok: false, error: err.message }, { status: err.status });
   }
 
   const message = typeof body.message === "string" ? body.message.trim() : "";
