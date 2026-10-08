@@ -74,6 +74,69 @@ export async function ensureUser(input: {
   `;
 }
 
+export type WorkspaceRow = {
+  id: string;
+  organization_id: string;
+  slug: string;
+  name: string;
+  product_name: string | null;
+  product_description: string | null;
+  support_context: string | null;
+};
+
+export async function getWorkspaceBySlug(slug: string): Promise<WorkspaceRow | null> {
+  const sql = await getSql();
+  if (!sql) return null;
+  const rows = (await sql`
+    select id, organization_id, slug, name, product_name, product_description, support_context
+    from workspaces where slug = ${slug} limit 1
+  `) as unknown as WorkspaceRow[];
+  return rows[0] ?? null;
+}
+
+export async function ensureOrganization(input: {
+  id: string;
+  slug: string;
+  name: string;
+}): Promise<void> {
+  const sql = await getSql();
+  if (!sql) return;
+  await sql`
+    insert into organizations (id, slug, name)
+    values (${input.id}, ${input.slug}, ${input.name})
+    on conflict (id) do nothing
+  `;
+}
+
+export async function ensureWorkspace(input: {
+  id: string;
+  organizationId: string;
+  slug: string;
+  name: string;
+}): Promise<void> {
+  const sql = await getSql();
+  if (!sql) return;
+  await sql`
+    insert into workspaces (id, organization_id, slug, name)
+    values (${input.id}, ${input.organizationId}, ${input.slug}, ${input.name})
+    on conflict (id) do nothing
+  `;
+}
+
+export async function ensureCustomer(input: {
+  id: string;
+  workspaceId: string;
+  bootstrapHash: string;
+}): Promise<void> {
+  const sql = await getSql();
+  if (!sql) return;
+  await sql`
+    insert into customers (id, workspace_id, bootstrap_identity_hash)
+    values (${input.id}, ${input.workspaceId}, ${input.bootstrapHash})
+    on conflict (id) do update set updated_at = now()
+  `;
+}
+
 export function hashAccessCodeForDb(normalizedCode: string, salt: string): string {
   // Separate DB-level hash; the raw code is never stored.
   // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateJson, GeminiNotConfiguredError } from "@/lib/gemini";
-import { identityFromAccessCode, previewUserId } from "@/lib/identity";
+import { previewUserId } from "@/lib/identity";
+import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
 import type { ChatTurn } from "@/lib/gemini";
 import {
   dropKnownFacts,
@@ -32,6 +33,7 @@ export type CaptureResult = {
  */
 export async function POST(req: Request) {
   let body: {
+    workspaceSlug?: unknown;
     accessCode?: unknown;
     message?: unknown;
     answer?: unknown;
@@ -44,12 +46,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
 
-  let identity: ReturnType<typeof identityFromAccessCode>;
+  // Facts land in the CURRENT workspace/customer scope only.
+  let tenant: Awaited<ReturnType<typeof resolveTenant>>;
   try {
-    identity = identityFromAccessCode(body.accessCode);
+    tenant = await resolveTenant(body.workspaceSlug, body.accessCode);
   } catch (e) {
+    if (e instanceof UnknownWorkspaceError) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
+    }
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad accessCode" },
+      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
       { status: 400 },
     );
   }
@@ -94,7 +100,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       facts: [],
-      userPreview: previewUserId(identity.userId),
+      userPreview: previewUserId(tenant.customerId),
     });
   }
 
@@ -102,7 +108,7 @@ export async function POST(req: Request) {
   try {
     for (const f of facts) {
       try {
-        const done = await rememberPrivate(identity.namespace, f.text);
+        const done = await rememberPrivate(tenant.privateNamespace, f.text);
         results.push({ type: f.type, text: f.text, status: "stored", blobId: done.blobId });
       } catch (e) {
         results.push({
@@ -126,6 +132,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     facts: results,
-    userPreview: previewUserId(identity.userId),
+    userPreview: previewUserId(tenant.customerId),
+    workspace: tenant.workspace,
   });
 }

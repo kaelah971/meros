@@ -72,7 +72,12 @@ export async function rememberPrivate(
   };
 }
 
-/** Shared institutional namespace. Written only via explicit promotion (later slice). */
+/**
+ * V1 LEGACY global shared namespace (`meros:shared:fixes`).
+ * Used ONLY by the /dev diagnostic + legacy memory/* routes (P0 proof).
+ * V2 workspace chat MUST NEVER import this — one org's fix leaking into
+ * another's would be a tenant breach. See lib/tenant.ts for v2.
+ */
 export const SHARED_FIXES_NAMESPACE = "meros:shared:fixes";
 
 /**
@@ -106,9 +111,8 @@ export async function recallPrivate(
 }
 
 /**
- * Semantic recall over the shared approved-fixes namespace.
- * Empty namespace is a normal result (no promotion workflow yet) —
- * callers must treat zero hits as success, not failure.
+ * V1 LEGACY global shared recall. /dev + legacy memory/* routes only.
+ * V2 chat uses recallBounded() with a tenant-derived namespace instead.
  */
 export async function recallShared(
   query: string,
@@ -153,15 +157,20 @@ export async function recallBounded(
 }
 
 /**
- * Write one approved shared fix. Called ONLY from the promote route after
- * explicit human approval + server-side validation. Waits for completion.
+ * Write text into an EXPLICIT server-derived namespace and wait for Walrus
+ * completion. All v2 tenant writes go through here; callers pass the
+ * namespace from resolveTenant() — never from the client.
  */
-export async function rememberShared(text: string): Promise<RememberDone> {
+export async function rememberInNamespace(
+  namespace: string,
+  text: string,
+  maxChars = 8000,
+): Promise<RememberDone> {
   const client = getClient();
   const clean = text.trim();
-  if (!clean) throw new Error("shared fix text must not be empty");
-  if (clean.length > 2000) throw new Error("shared fix text too long");
-  const result = await client.rememberAndWait(clean, SHARED_FIXES_NAMESPACE, {
+  if (!clean) throw new Error("memory text must not be empty");
+  if (clean.length > maxChars) throw new Error(`memory text too long (max ${maxChars})`);
+  const result = await client.rememberAndWait(clean, namespace, {
     timeoutMs: 120_000,
     pollIntervalMs: 1_500,
   });
@@ -169,7 +178,16 @@ export async function rememberShared(text: string): Promise<RememberDone> {
   return {
     blobId: result.blob_id,
     jobId: result.job_id ?? result.id,
-    namespace: result.namespace || SHARED_FIXES_NAMESPACE,
+    namespace: result.namespace || namespace,
     owner: result.owner,
   };
+}
+
+/**
+ * V1 LEGACY global shared write. Legacy promote path only — v2 promotion
+ * calls rememberInNamespace() with the CURRENT workspace's shared namespace.
+ */
+export async function rememberShared(text: string): Promise<RememberDone> {
+  if (!text.trim()) throw new Error("shared fix text must not be empty");
+  return rememberInNamespace(SHARED_FIXES_NAMESPACE, text, 2000);
 }

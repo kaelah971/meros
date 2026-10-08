@@ -235,6 +235,7 @@ function CompareCard({
 
 /** Explicit capture after the answer renders. Returns a short UI note. */
 async function captureTurn(
+  workspaceSlug: string,
   accessCode: string,
   message: string,
   answer: string,
@@ -245,14 +246,14 @@ async function captureTurn(
     const res = await fetch("/api/memory/capture", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ accessCode, message, answer, history, knownTexts }),
+      body: JSON.stringify({ workspaceSlug, accessCode, message, answer, history, knownTexts }),
     });
     const data = await res.json();
     if (!data.ok) return "Private memory save unavailable right now.";
     const facts = (data.facts ?? []) as { status: string; text?: string; blobId?: string }[];
     for (const f of facts) {
       if (f.status === "stored" && f.blobId) {
-        recordEvidence({ kind: "private-write", text: f.text ?? "", blobId: f.blobId, status: "stored" });
+        recordEvidence({ kind: "private-write", workspace: workspaceSlug, text: f.text ?? "", blobId: f.blobId, status: "stored" });
       }
     }
     if (facts.length === 0) return null;
@@ -267,10 +268,12 @@ async function captureTurn(
 }
 
 function FixCard({
+  workspaceSlug,
   accessCode,
   history,
   onClose,
 }: {
+  workspaceSlug: string;
   accessCode: string;
   history: { role: "user" | "assistant"; text: string }[];
   onClose: () => void;
@@ -283,7 +286,7 @@ function FixCard({
       const res = await fetch("/api/fixes/candidate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ accessCode, history }),
+        body: JSON.stringify({ workspaceSlug, accessCode, history }),
       });
       const data = await res.json();
       if (data.ok && data.candidate) {
@@ -296,7 +299,7 @@ function FixCard({
     } catch (e) {
       setState({ status: "failed", error: e instanceof Error ? e.message : "Network error." });
     }
-  }, [accessCode, history]);
+  }, [workspaceSlug, accessCode, history]);
 
   useEffect(() => {
     void load();
@@ -308,11 +311,11 @@ function FixCard({
       const res = await fetch("/api/fixes/promote", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ accessCode, candidate }),
+        body: JSON.stringify({ workspaceSlug, accessCode, candidate }),
       });
       const data = await res.json();
       if (data.ok && data.status === "stored") {
-        recordEvidence({ kind: "shared-write", text: candidate, blobId: data.blobId });
+        recordEvidence({ kind: "shared-write", workspace: workspaceSlug, text: candidate, blobId: data.blobId });
         setState({ status: "stored", candidate, blobId: data.blobId });
       } else {
         setState({ status: "failed", error: data.error ?? "Shared save failed." });
@@ -397,6 +400,10 @@ function FixCard({
 }
 
 export default function ChatPage() {
+  // NOTE: workspaceSlug + accessCode are TEMPORARY P5 bootstrap identity
+  // (replaced by real auth in P6/P7). The server derives everything else.
+  const [workspaceSlug, setWorkspaceSlug] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [started, setStarted] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -432,9 +439,11 @@ export default function ChatPage() {
     scrollDown();
   }, [transcriptForFix]);
 
+  const canStart = workspaceSlug.trim().length >= 2 && accessCode.trim().length >= 4;
+
   const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text || sending || !accessCode.trim()) return;
+    if (!text || sending || !accessCode.trim() || !workspaceSlug.trim()) return;
     setSending(true);
     setError("");
     const history = messages.flatMap((m): { role: "user" | "assistant"; text: string }[] =>
@@ -449,7 +458,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ accessCode, message: text, history }),
+        body: JSON.stringify({ workspaceSlug, accessCode, message: text, history }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -481,7 +490,8 @@ export default function ChatPage() {
       // Explicit capture runs AFTER the answer renders (non-blocking for
       // chat latency). The capture endpoint still awaits real Walrus
       // completion per fact and reports honest per-fact status.
-      void captureTurn(accessCode, text, data.answer, history, knownTexts).then((note) => {
+      if (data.workspace?.name) setWorkspaceName(data.workspace.name);
+      void captureTurn(workspaceSlug, accessCode, text, data.answer, history, knownTexts).then((note) => {
         if (!note) return;
         setMessages((prev) =>
           prev.map((m, idx) =>
@@ -494,7 +504,7 @@ export default function ChatPage() {
     } finally {
       setSending(false);
     }
-  }, [draft, sending, accessCode, messages, openFixCard]);
+  }, [draft, sending, workspaceSlug, accessCode, messages, openFixCard]);
 
   const runCompare = useCallback(async (idx: number) => {
     // Controlled rerun: same user message + same conversation context, but
@@ -510,7 +520,7 @@ export default function ChatPage() {
       const res = await fetch("/api/compare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ accessCode, message: prev.text, history: current.historySnapshot }),
+        body: JSON.stringify({ workspaceSlug, accessCode, message: prev.text, history: current.historySnapshot }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -525,6 +535,7 @@ export default function ChatPage() {
       }
       recordEvidence({
         kind: "compare",
+        workspace: workspaceSlug,
         question: prev.text.length > 140 ? `${prev.text.slice(0, 140)}…` : prev.text,
         privateUsed: current.memoryUsed.private,
         sharedUsed: current.memoryUsed.shared,
@@ -551,7 +562,7 @@ export default function ChatPage() {
         ),
       );
     }
-  }, [messages, accessCode]);
+  }, [messages, workspaceSlug, accessCode]);
 
   const newConversation = useCallback(() => {
     // Same user, fresh thread. Long-term memory stays in Walrus under the
@@ -564,13 +575,27 @@ export default function ChatPage() {
   }, []);
 
   const switchUser = useCallback(() => {
-    // Different user entirely: drop the thread AND the identity, back to the
-    // access-code gate. Walrus memories are untouched (server-side).
+    // Different customer, SAME workspace: drop the thread and the access
+    // code, back to the customer gate with the workspace kept. Walrus
+    // memories are untouched (server-side).
     setMessages([]);
     setError("");
     setDraft("");
     setFixOpen(false);
     setAccessCode("");
+    setStarted(false);
+  }, []);
+
+  const switchWorkspace = useCallback(() => {
+    // Full reset: drop thread, identity, AND workspace. Back to the full
+    // temporary gate. Walrus memories are untouched (server-side).
+    setMessages([]);
+    setError("");
+    setDraft("");
+    setFixOpen(false);
+    setAccessCode("");
+    setWorkspaceSlug("");
+    setWorkspaceName("");
     setStarted(false);
   }, []);
 
@@ -582,27 +607,42 @@ export default function ChatPage() {
         </p>
         <h1 className="mt-3 text-3xl font-semibold">Solve it once. Remember it for everyone.</h1>
         <p className="mt-4 text-sm leading-6 text-neutral-300">
-          Enter your access code to pick up your private support memory. Meros
-          remembers your setup across sessions — and learns reusable fixes the
-          whole team benefits from.
+          Enter your workspace and customer access code to pick up your private
+          support memory. Memory never crosses workspace boundaries.
         </p>
-        <div className="mt-6 flex gap-2">
-          <input
-            value={accessCode}
-            onChange={(e) => setAccessCode(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && accessCode.trim().length >= 4) setStarted(true);
-            }}
-            placeholder="e.g. P0-ALICE-01"
-            autoComplete="off"
-            className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
-          />
+        <p className="mt-2 inline-block rounded border border-amber-800 bg-amber-950/40 px-2 py-1 text-[11px] text-amber-300">
+          Temporary demo identity — real sign-in arrives in a later slice.
+        </p>
+        <div className="mt-6 space-y-2">
+          <label className="block text-xs text-neutral-400">
+            Workspace
+            <input
+              value={workspaceSlug}
+              onChange={(e) => setWorkspaceSlug(e.target.value)}
+              placeholder="e.g. acme"
+              autoComplete="off"
+              className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+            />
+          </label>
+          <label className="block text-xs text-neutral-400">
+            Customer access code
+            <input
+              value={accessCode}
+              onChange={(e) => setAccessCode(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canStart) setStarted(true);
+              }}
+              placeholder="e.g. P0-ALICE-01"
+              autoComplete="off"
+              className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-emerald-500"
+            />
+          </label>
           <button
-            onClick={() => accessCode.trim().length >= 4 && setStarted(true)}
-            disabled={accessCode.trim().length < 4}
-            className="rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
+            onClick={() => canStart && setStarted(true)}
+            disabled={!canStart}
+            className="w-full rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-emerald-400"
           >
-            Start chatting
+            Continue
           </button>
         </div>
         <p className="mt-3 text-xs text-neutral-500">
@@ -618,7 +658,8 @@ export default function ChatPage() {
       <header className="flex items-center justify-between border-b border-neutral-800 pb-3">
         <div>
           <p className="text-xs uppercase tracking-widest text-neutral-500">Meros</p>
-          <p className="text-sm text-neutral-300">Support chat with memory</p>
+          <p className="text-sm text-neutral-300">{workspaceName ? `${workspaceName} Support` : "Support chat with memory"}</p>
+          <p className="text-[11px] text-neutral-500">Customer session · {workspaceSlug}</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -637,10 +678,17 @@ export default function ChatPage() {
           </button>
           <button
             onClick={switchUser}
-            title="Different user: back to the access-code gate (Walrus memories untouched)"
+            title="Same workspace, different customer (Walrus memories untouched)"
             className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
           >
             Switch user
+          </button>
+          <button
+            onClick={switchWorkspace}
+            title="Full reset: choose a different workspace"
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+          >
+            Switch workspace
           </button>
           <Link
             href="/evidence"
@@ -701,6 +749,7 @@ export default function ChatPage() {
         )}
         {fixOpen && (
           <FixCard
+            workspaceSlug={workspaceSlug}
             accessCode={accessCode}
             history={fixHistory}
             onClose={() => setFixOpen(false)}

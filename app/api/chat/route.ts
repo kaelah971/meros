@@ -7,9 +7,10 @@ import {
   type MemoryItem,
 } from "@/lib/chat-memory";
 import { GeminiNotConfiguredError, generateSupportAnswer, type ChatTurn } from "@/lib/gemini";
-import { identityFromAccessCode, previewUserId } from "@/lib/identity";
+import { previewUserId } from "@/lib/identity";
 import { buildRecallQuery, detectResolution } from "@/lib/support-memory";
-import { CHAT_RECALL_TIMEOUT_MS, SHARED_FIXES_NAMESPACE, recallBounded } from "@/lib/walrus";
+import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
+import { CHAT_RECALL_TIMEOUT_MS, recallBounded } from "@/lib/walrus";
 import { isWalrusConfigured, walrusBlocker } from "@/lib/env";
 
 const MAX_HISTORY_TURNS = 12;
@@ -38,20 +39,24 @@ export type ProvenanceItem = {
 };
 
 export async function POST(req: Request) {
-  let body: { accessCode?: unknown; message?: unknown; history?: unknown };
+  let body: { workspaceSlug?: unknown; accessCode?: unknown; message?: unknown; history?: unknown }; // NOTE: workspaceSlug + accessCode are TEMPORARY P5 bootstrap identity (replaced by auth in P6/P7).
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
 
-  // Server derives identity + both namespaces. Client supplies none of these.
-  let identity: ReturnType<typeof identityFromAccessCode>;
+  // Server resolves workspace + customer and derives BOTH v2 namespaces.
+  // Client supplies only (workspaceSlug, accessCode) — never IDs/namespaces.
+  let tenant: Awaited<ReturnType<typeof resolveTenant>>;
   try {
-    identity = identityFromAccessCode(body.accessCode);
+    tenant = await resolveTenant(body.workspaceSlug, body.accessCode);
   } catch (e) {
+    if (e instanceof UnknownWorkspaceError) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
+    }
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad accessCode" },
+      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
       { status: 400 },
     );
   }
@@ -79,12 +84,12 @@ export async function POST(req: Request) {
   }
   console.log(`[chat] recall start (timeout ${CHAT_RECALL_TIMEOUT_MS}ms/plane)`);
   const [p, s] = await Promise.all([
-    recallBounded(identity.namespace, recallQuery, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE })
+    recallBounded(tenant.privateNamespace, recallQuery, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE })
       .then((r) => {
         console.log(`[chat] recall private ${r.status} in ${r.durationMs}ms (${r.total} hits)`);
         return r;
       }),
-    recallBounded(SHARED_FIXES_NAMESPACE, recallQuery, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE })
+    recallBounded(tenant.sharedNamespace, recallQuery, { topK: RECALL_TOP_K, maxDistance: MAX_DISTANCE })
       .then((r) => {
         console.log(`[chat] recall shared ${r.status} in ${r.durationMs}ms (${r.total} hits)`);
         return r;
@@ -138,7 +143,8 @@ export async function POST(req: Request) {
     resolutionDetected: detectResolution(message),
     memoryStatus,
     degradedMemory,
-    userPreview: previewUserId(identity.userId),
+    userPreview: previewUserId(tenant.customerId),
+    workspace: tenant.workspace,
     memoryUsed: {
       private: used.some((m) => m.plane === "private"),
       shared: used.some((m) => m.plane === "shared"),

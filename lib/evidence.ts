@@ -8,6 +8,7 @@ export type EvidenceEvent =
   | {
       kind: "private-write";
       ts: number;
+      workspace?: string;
       text: string;
       blobId: string;
       status: "stored" | "failed";
@@ -15,12 +16,14 @@ export type EvidenceEvent =
   | {
       kind: "shared-write";
       ts: number;
+      workspace?: string;
       text: string;
       blobId: string;
     }
   | {
       kind: "compare";
       ts: number;
+      workspace?: string;
       question: string;
       privateUsed: boolean;
       sharedUsed: boolean;

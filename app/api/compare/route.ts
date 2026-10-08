@@ -6,7 +6,7 @@ import {
   getPrimaryModel,
   type ChatTurn,
 } from "@/lib/gemini";
-import { identityFromAccessCode } from "@/lib/identity";
+import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
 
 const MAX_HISTORY_TURNS = 12;
 const MAX_TEXT_CHARS = 2000;
@@ -27,24 +27,29 @@ function cleanTurns(raw: unknown): ChatTurn[] {
 }
 
 /**
- * Controlled no-memory rerun. The access code is validated to keep the same
- * gate as /api/chat, but NO namespace is derived, NO Walrus recall runs, and
- * nothing is captured or promoted. A real new Gemini generation with an
- * explicit no-memory system instruction — never a redacted original.
+ * Controlled no-memory rerun. Tenant bootstrap is validated to keep the
+ * same gate as /api/chat, but this path performs ZERO Walrus calls and
+ * derives nothing — a real new Gemini generation with an explicit
+ * no-memory system instruction, never a redacted original.
  */
 export async function POST(req: Request) {
-  let body: { accessCode?: unknown; message?: unknown; history?: unknown };
+  let body: { workspaceSlug?: unknown; accessCode?: unknown; message?: unknown; history?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
 
+  // Gate-only check: validates the bootstrap without touching Walrus.
+  // resolveTenant is imported for validation only; its IDs are discarded.
   try {
-    identityFromAccessCode(body.accessCode);
+    await resolveTenant(body.workspaceSlug, body.accessCode);
   } catch (e) {
+    if (e instanceof UnknownWorkspaceError) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
+    }
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad accessCode" },
+      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
       { status: 400 },
     );
   }
@@ -80,12 +85,12 @@ export async function POST(req: Request) {
     );
   }
 
+  // Deliberately NO per-memory source list: the baseline consulted nothing.
   return NextResponse.json({
     ok: true,
     answer,
     model: getPrimaryModel(),
     memoryUsed: { private: false, shared: false },
-    provenance: [],
     historyTurns: history.length,
   });
 }

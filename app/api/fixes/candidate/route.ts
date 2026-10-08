@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateJson, GeminiNotConfiguredError, type ChatTurn } from "@/lib/gemini";
-import { identityFromAccessCode, previewUserId } from "@/lib/identity";
+import { previewUserId } from "@/lib/identity";
+import { UnknownWorkspaceError, resolveTenant } from "@/lib/tenant-store";
 import {
   formatSharedFix,
   parseSharedFix,
@@ -22,19 +23,23 @@ Rules:
  * Writes NOTHING to Walrus — preview only. The human gate decides next.
  */
 export async function POST(req: Request) {
-  let body: { accessCode?: unknown; history?: unknown };
+  // NOTE: workspaceSlug + accessCode are TEMPORARY P5 bootstrap identity (replaced by auth in P6/P7).
+  let body: { workspaceSlug?: unknown; accessCode?: unknown; history?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "invalid JSON body" }, { status: 400 });
   }
 
-  let identity: ReturnType<typeof identityFromAccessCode>;
+  let tenant: Awaited<ReturnType<typeof resolveTenant>>;
   try {
-    identity = identityFromAccessCode(body.accessCode);
+    tenant = await resolveTenant(body.workspaceSlug, body.accessCode);
   } catch (e) {
+    if (e instanceof UnknownWorkspaceError) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 404 });
+    }
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "bad accessCode" },
+      { ok: false, error: e instanceof Error ? e.message : "bad tenant identity" },
       { status: 400 },
     );
   }
@@ -101,6 +106,6 @@ export async function POST(req: Request) {
     candidate: gate.ok ? text : null,
     blocked: gate.ok ? undefined : gate.error,
     redaction: gate.redaction,
-    userPreview: previewUserId(identity.userId),
+    userPreview: previewUserId(tenant.customerId),
   });
 }
