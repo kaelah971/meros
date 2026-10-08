@@ -1,9 +1,9 @@
 "use client";
 
-import { authClient } from "@/lib/better-auth-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { OwnerShell, PageHeader } from "@/components/meros-ui";
 
 type Org = { organization_id: string; slug: string; name: string; role: string };
 type Ws = { slug: string; name: string; productName: string | null; role: string; supportUrl: string };
@@ -204,75 +204,108 @@ export function AppHomeClient({ email }: { email: string }) {
     }
   };
 
-  const logout = async () => {
-    await authClient.signOut();
-    router.push("/");
-    router.refresh();
-  };
-
   return (
-    <main className="mx-auto max-w-2xl px-4 py-6">
-      <header className="flex items-center justify-between border-b border-[rgba(119,255,117,0.14)] pb-3">
-        <div>
-          <p className="text-xs uppercase tracking-widest text-neutral-500">Meros</p>
-          <p className="text-sm text-neutral-300">Your organizations</p>
-          <p className="text-[11px] text-neutral-500">{email}</p>
-        </div>
-        <button
-          onClick={() => void logout()}
-          className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
-        >
-          Sign out
-        </button>
-      </header>
+    <OwnerShell
+      email={email}
+      nav={[{ label: "Organizations", href: "/app" }]}
+    >
+      <PageHeader
+        eyebrow="YOUR ORGANIZATIONS"
+        title={orgs !== null && orgs.length === 0 ? "Build your support memory." : `Good to see you, ${email.split("@")[0]}.`}
+        lede={
+          orgs !== null && orgs.length === 0
+            ? "Set up your organization, teach Meros about your product, then share your support workspace."
+            : "Each organization below holds its own isolated support workspaces and memory."
+        }
+      />
 
-      {error && <p className="mt-4 text-xs text-red-300">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-4 text-xs text-red-300">
+          {error}
+        </p>
+      )}
 
       {orgs === null ? (
         <p className="mt-6 text-xs text-neutral-500">Loading…</p>
       ) : orgs.length === 0 ? (
-        <div className="mt-6 rounded-md border border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] px-4 py-3">
-          <p className="text-sm font-medium text-neutral-100">Welcome — let&apos;s set up your support workspace</p>
-          <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-neutral-400">
-            <li>Create your organization below, or take the guided setup.</li>
-            <li>Inside it, create your first workspace (name, product, URL slug).</li>
-            <li>Copy the customer support URL and share it — no demo data needed.</li>
-          </ol>
-          <Link
-            href="/app/onboarding"
-            className="mt-3 inline-block rounded-md bg-[#77FF75] px-4 py-2 text-xs font-medium text-neutral-950 hover:bg-emerald-400"
-          >
-            Start guided setup →
-          </Link>
-        </div>
+        <>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["01", "ORGANIZATION", "Tell Meros who you are."],
+              ["02", "WORKSPACE", "Create the support destination for your product."],
+              ["03", "KNOWLEDGE", "Teach Meros how your product works."],
+              ["04", "GO LIVE", "Share your customer support URL."],
+            ].map(([n, title, body]) => (
+              <div
+                key={n}
+                className="rounded-xl border border-[rgba(119,255,117,0.16)] bg-[rgba(10,27,18,0.72)] p-4 backdrop-blur-[6px]"
+              >
+                <p className="font-display text-lg font-bold text-[#4CA862]">{n}</p>
+                <p className="font-display mt-1 text-[11px] font-bold tracking-[0.15em] text-[#9AFF8D]">
+                  {title}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[#8E9B93]">{body}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href="/app/onboarding"
+              className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-semibold text-[#030806] transition-colors hover:bg-[#9AFF8D]"
+            >
+              Start guided setup →
+            </Link>
+          </div>
+          <div className="meros-card mt-6 rounded-xl p-4 sm:p-5">
+            <p className="text-sm font-medium text-neutral-100">Step 1 — Create your organization</p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label="Organization name"
+                placeholder="e.g. Acme Inc"
+                className="flex-1 rounded-md border border-[rgba(119,255,117,0.25)] bg-[#06100B] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
+              />
+              <button
+                onClick={() => void createOrg()}
+                disabled={busy || name.trim().length < 2}
+                className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-[#9AFF8D]"
+              >
+                Create
+              </button>
+            </div>
+            {createError && <p className="mt-2 text-xs text-red-300">{createError}</p>}
+          </div>
+        </>
       ) : (
-        <ul className="mt-4 space-y-3">
-          {orgs.map((o) => (
-            <OrgCard key={o.organization_id} org={o} origin={origin} />
-          ))}
-        </ul>
+        <>
+          <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+            {orgs.map((o) => (
+              <OrgCard key={o.organization_id} org={o} origin={origin} />
+            ))}
+          </ul>
+          <div className="meros-card mt-4 rounded-xl p-4 sm:p-5">
+            <p className="text-sm font-medium text-neutral-100">+ New organization</p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label="Organization name"
+                placeholder="e.g. Acme Inc"
+                className="flex-1 rounded-md border border-[rgba(119,255,117,0.25)] bg-[#06100B] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
+              />
+              <button
+                onClick={() => void createOrg()}
+                disabled={busy || name.trim().length < 2}
+                className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-[#9AFF8D]"
+              >
+                Create
+              </button>
+            </div>
+            {createError && <p className="mt-2 text-xs text-red-300">{createError}</p>}
+          </div>
+        </>
       )}
-
-      <h2 className="mt-8 text-sm font-medium text-neutral-200">
-        {orgs !== null && orgs.length === 0 ? "Step 1 — Create your organization" : "Create organization"}
-      </h2>
-      <div className="mt-2 flex gap-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          aria-label="Organization name"
-          placeholder="e.g. Acme Inc"
-          className="flex-1 rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
-        />
-        <button
-          onClick={() => void createOrg()}
-          disabled={busy || name.trim().length < 2}
-          className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-neutral-950 disabled:opacity-40 hover:bg-[#9AFF8D]"
-        >
-          Create
-        </button>
-      </div>
-      {createError && <p className="mt-2 text-xs text-red-300">{createError}</p>}
-    </main>
+    </OwnerShell>
   );
 }

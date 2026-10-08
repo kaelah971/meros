@@ -9,6 +9,7 @@ import {
   listMessages,
 } from "@/lib/support-ops";
 import { shortBlob } from "@/lib/evidence";
+import { StatusPill } from "@/components/meros-ui";
 
 /** Staff conversation detail: persisted thread + provenance + linked Fix Card. */
 export default async function ConversationDetail({
@@ -33,9 +34,10 @@ export default async function ConversationDetail({
   return (
     <div>
       <p className="text-sm font-medium text-neutral-100">{summary.title}</p>
-      <p className="mt-0.5 text-[11px] text-neutral-500">
-        {contact.displayName ?? contact.email ?? "Customer"} · {summary.status}
-        {summary.resolved_at ? ` · resolved ${new Date(summary.resolved_at).toLocaleString()}` : ""}
+      <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
+        <span>{contact.displayName ?? contact.email ?? "Customer"}</span>
+        <StatusPill status={summary.status} />
+        {summary.resolved_at ? <span>resolved {new Date(summary.resolved_at).toLocaleString()}</span> : ""}
       </p>
       <div className="mt-3 space-y-2">
         {messages.map((m) => (
@@ -43,7 +45,7 @@ export default async function ConversationDetail({
             key={m.id}
             className={`max-w-[95%] rounded-lg border px-3 py-2 text-xs leading-5 ${
               m.role === "user"
-                ? "ml-auto border-emerald-900 bg-emerald-950/40 text-neutral-100"
+                ? "ml-auto border-[rgba(119,255,117,0.3)] bg-[rgba(119,255,117,0.12)] text-white"
                 : "border-[rgba(119,255,117,0.14)] bg-[rgba(10,27,18,0.72)] text-neutral-200"
             }`}
           >

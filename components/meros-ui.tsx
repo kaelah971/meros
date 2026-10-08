@@ -144,6 +144,138 @@ export function LoadingDots({ label = "Working…" }: { label?: string }) {
 
 export type ConsoleNavItem = { label: string; href: string };
 
+/** Branded page heading block: Silkscreen eyebrow + strong title + lede. */
+export function PageHeader({
+  eyebrow,
+  title,
+  lede,
+}: {
+  eyebrow: string;
+  title: string;
+  lede?: string;
+}) {
+  return (
+    <div>
+      <Eyebrow>{eyebrow}</Eyebrow>
+      <h1 className="mt-2 text-xl font-semibold text-[#F5F7F5] sm:text-2xl">{title}</h1>
+      {lede ? <p className="mt-1 max-w-xl text-[13px] leading-5 text-[#8E9B93]">{lede}</p> : null}
+    </div>
+  );
+}
+
+/** Metric card for operational counts. Value only — never invent. */
+export function StatCard({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: number;
+  href?: string;
+}) {
+  const inner = (
+    <>
+      <p className="font-display text-2xl font-bold text-[#F5F7F5]">{value}</p>
+      <p className="mt-1 text-[11px] tracking-wide text-[#8E9B93]">{label}</p>
+    </>
+  );
+  const cls =
+    "block rounded-xl border border-[rgba(119,255,117,0.16)] bg-[rgba(10,27,18,0.72)] px-4 py-3 backdrop-blur-[6px] transition-colors hover:border-[rgba(119,255,117,0.4)]";
+  return href ? (
+    <Link href={href} className={cls}>
+      {inner}
+    </Link>
+  ) : (
+    <div className={cls}>{inner}</div>
+  );
+}
+
+/**
+ * Owner-level shell for /app routes: sidebar on desktop (wordmark,
+ * account, section nav), compact collapsible top bar on mobile.
+ * Auth is always verified by the wrapping page — presentation only.
+ */
+export function OwnerShell({
+  email,
+  nav,
+  children,
+}: {
+  email: string;
+  nav: ConsoleNavItem[];
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+  const signOut = async () => {
+    await authClient.signOut();
+    router.push("/");
+    router.refresh();
+  };
+  return (
+    <div className="relative min-h-screen bg-[#030806] text-[#F5F7F5]">
+      <PageBackdrop />
+      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 sm:px-6 md:flex-row md:gap-8">
+        <aside className="mb-4 md:mb-0 md:w-60 md:shrink-0" aria-label="Meros owner navigation">
+          <div className="flex items-center justify-between gap-2 md:block">
+            <div>
+              <Link href="/app" aria-label="Meros organizations home">
+                <Wordmark />
+              </Link>
+              <p className="mt-1 truncate text-[11px] text-[#8E9B93]">{email}</p>
+            </div>
+            <button
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              aria-label="Toggle owner navigation"
+              className="rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-[#F5F7F5] md:hidden"
+            >
+              {open ? "✕ Close" : "☰ Menu"}
+            </button>
+          </div>
+          <nav
+            aria-label="Owner"
+            className={`${open ? "mt-3 block" : "hidden"} md:mt-6 md:block`}
+          >
+            <p className="font-display hidden text-[10px] tracking-[0.25em] text-[#4CA862] md:mb-2 md:block">
+              OWNER
+            </p>
+            <ul className="flex gap-2 overflow-x-auto md:flex-col md:gap-1 md:overflow-visible">
+              {nav.map((item) => (
+                <li key={item.href} className="shrink-0">
+                  <Link
+                    href={item.href}
+                    onClick={() => setOpen(false)}
+                    className="block rounded-md px-3 py-2 text-[13px] text-[#8E9B93] transition-colors hover:bg-[rgba(119,255,117,0.06)] hover:text-[#F5F7F5]"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 hidden border-t border-[rgba(119,255,117,0.12)] pt-3 md:block">
+              <button
+                onClick={() => void signOut()}
+                className="w-full rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-[#F5F7F5] transition-colors hover:border-[rgba(119,255,117,0.5)]"
+              >
+                Sign out
+              </button>
+            </div>
+          </nav>
+          <div className="mt-3 md:hidden">
+            <button
+              onClick={() => void signOut()}
+              className={`w-full rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-[#F5F7F5] ${open ? "block" : "hidden"}`}
+            >
+              Sign out
+            </button>
+          </div>
+        </aside>
+        <div className="min-w-0 flex-1 pb-10">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Owner console shell: sidebar on desktop, compact top bar + collapsible
  * nav on mobile. Membership is always verified by the wrapping layout —
