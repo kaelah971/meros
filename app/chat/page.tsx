@@ -1,6 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { parseBlocks, type BlockNode, type InlineNode } from "@/lib/markdown";
+import { recordEvidence, shortBlob } from "@/lib/evidence";
 
 type ProvenanceItem = {
   plane: "private" | "shared";
@@ -19,7 +22,61 @@ type Msg =
       historyTurns: number;
       captureNote?: string;
       degradedMemory?: boolean;
+      historySnapshot: { role: "user" | "assistant"; text: string }[];
+      compare?:
+        | { status: "loading" }
+        | { status: "done"; baseline: string }
+        | { status: "failed"; error: string };
     };
+
+function Inline({ nodes }: { nodes: InlineNode[] }) {
+  return (
+    <>
+      {nodes.map((n, i) =>
+        n.t === "bold" ? (
+          <strong key={i} className="font-semibold text-neutral-50">{n.v}</strong>
+        ) : n.t === "italic" ? (
+          <em key={i}>{n.v}</em>
+        ) : n.t === "code" ? (
+          <code key={i} className="rounded bg-neutral-800 px-1 py-0.5 font-mono text-[12px] text-emerald-300">{n.v}</code>
+        ) : (
+          <span key={i}>{n.v}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+/** Safe minimal Markdown: headings, bold, italic, code, lists, paragraphs.
+ *  All text renders as React nodes (auto-escaped) — raw HTML can never run. */
+function Markdown({ text }: { text: string }) {
+  const blocks: BlockNode[] = parseBlocks(text);
+  return (
+    <div className="space-y-2">
+      {blocks.map((b, i) =>
+        b.t === "heading" ? (
+          b.level === 1 ? (
+            <p key={i} className="text-base font-semibold text-neutral-50"><Inline nodes={b.inline} /></p>
+          ) : b.level === 2 ? (
+            <p key={i} className="text-sm font-semibold text-neutral-50"><Inline nodes={b.inline} /></p>
+          ) : (
+            <p key={i} className="text-sm font-medium text-neutral-100"><Inline nodes={b.inline} /></p>
+          )
+        ) : b.t === "ul" ? (
+          <ul key={i} className="list-disc space-y-1 pl-5">
+            {b.items.map((it, j) => (<li key={j}><Inline nodes={it} /></li>))}
+          </ul>
+        ) : b.t === "ol" ? (
+          <ol key={i} className="list-decimal space-y-1 pl-5">
+            {b.items.map((it, j) => (<li key={j}><Inline nodes={it} /></li>))}
+          </ol>
+        ) : (
+          <p key={i}><Inline nodes={b.inline} /></p>
+        ),
+      )}
+    </div>
+  );
+}
 
 type FixState =
   | { status: "preparing" }
@@ -30,9 +87,6 @@ type FixState =
   | { status: "kept-private" }
   | { status: "failed"; error: string };
 
-function shortBlob(b: string): string {
-  return b.length > 18 ? `${b.slice(0, 10)}…${b.slice(-6)}` : b;
-}
 
 function MemoryLens({
   msg,
@@ -116,6 +170,69 @@ function MemoryLens({
   );
 }
 
+/** Side-by-side proof: original memory-influenced answer vs a fresh
+ *  baseline generated with long-term memory deliberately disabled.
+ *  The summary is built deterministically from the ORIGINAL provenance —
+ *  Gemini is never asked to explain the difference. */
+function CompareCard({
+  original,
+  baseline,
+}: {
+  original: Extract<Msg, { kind: "assistant" }>;
+  baseline: string;
+}) {
+  const priv = original.provenance.filter((p) => p.plane === "private");
+  const shared = original.provenance.filter((p) => p.plane === "shared");
+  const used: string[] = [];
+  if (priv.length > 0) used.push("private memory");
+  if (shared.length > 0) used.push("shared support memory");
+  return (
+    <div className="mt-2 overflow-hidden rounded-md border border-neutral-700">
+      <p className="bg-neutral-800/60 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-neutral-300">
+        Memory on vs off — same question, same conversation context
+      </p>
+      <div className="grid gap-px bg-neutral-800 sm:grid-cols-2">
+        <div className="bg-neutral-950 p-3">
+          <p className="text-[11px] font-semibold text-emerald-400">WITH MEROS MEMORY</p>
+          <div className="mt-1.5 text-xs leading-5 text-neutral-200">
+            <Markdown text={original.text} />
+          </div>
+        </div>
+        <div className="bg-neutral-950 p-3">
+          <p className="text-[11px] font-semibold text-neutral-400">WITHOUT MEMORY</p>
+          <p className="mt-1 text-[11px] text-neutral-500">Fresh generation · no long-term memory consulted</p>
+          <div className="mt-1.5 text-xs leading-5 text-neutral-200">
+            <Markdown text={baseline} />
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-neutral-800 bg-neutral-950 px-3 py-2 text-[11px] text-neutral-400">
+        <p className="font-medium text-neutral-300">Why this mattered</p>
+        <p className="mt-0.5">
+          Private memory: {priv.length > 0 ? `used (${priv.length})` : "not used"} · Shared memory:{" "}
+          {shared.length > 0 ? `used (${shared.length})` : "not used"} · Baseline: no long-term memory.
+        </p>
+        {shared.length > 0 && (
+          <ul className="mt-1 space-y-0.5">
+            {shared.map((p) => (
+              <li key={p.blobId}>
+                Shared pattern “{p.text.length > 120 ? `${p.text.slice(0, 120)}…` : p.text}”
+                <span className="font-mono text-neutral-500"> · blob {shortBlob(p.blobId)} · relevance {p.distance.toFixed(3)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {priv.length > 0 && shared.length === 0 && (
+          <p className="mt-0.5">Your private context shaped the answer above; the baseline started cold.</p>
+        )}
+        <p className="mt-0.5 text-neutral-500">
+          Built from actual recall provenance ({used.length > 0 ? used.join(" + ") : "none"} influenced the original).
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** Explicit capture after the answer renders. Returns a short UI note. */
 async function captureTurn(
   accessCode: string,
@@ -132,7 +249,12 @@ async function captureTurn(
     });
     const data = await res.json();
     if (!data.ok) return "Private memory save unavailable right now.";
-    const facts = (data.facts ?? []) as { status: string }[];
+    const facts = (data.facts ?? []) as { status: string; text?: string; blobId?: string }[];
+    for (const f of facts) {
+      if (f.status === "stored" && f.blobId) {
+        recordEvidence({ kind: "private-write", text: f.text ?? "", blobId: f.blobId, status: "stored" });
+      }
+    }
     if (facts.length === 0) return null;
     const stored = facts.filter((f) => f.status === "stored").length;
     const failed = facts.filter((f) => f.status === "failed").length;
@@ -190,6 +312,7 @@ function FixCard({
       });
       const data = await res.json();
       if (data.ok && data.status === "stored") {
+        recordEvidence({ kind: "shared-write", text: candidate, blobId: data.blobId });
         setState({ status: "stored", candidate, blobId: data.blobId });
       } else {
         setState({ status: "failed", error: data.error ?? "Shared save failed." });
@@ -344,6 +467,7 @@ export default function ChatPage() {
           memoryUsed: data.memoryUsed ?? { private: false, shared: false },
           historyTurns: data.historyTurns ?? history.length,
           degradedMemory: data.degradedMemory === true,
+          historySnapshot: history,
         },
       ]);
       scrollDown();
@@ -372,14 +496,82 @@ export default function ChatPage() {
     }
   }, [draft, sending, accessCode, messages, openFixCard]);
 
+  const runCompare = useCallback(async (idx: number) => {
+    // Controlled rerun: same user message + same conversation context, but
+    // the server deliberately skips ALL Walrus recall. Never a new chat
+    // turn (original proof untouched), never captured, never promoted.
+    const current = messages[idx];
+    const prev = messages[idx - 1];
+    if (!current || current.kind !== "assistant" || !prev || prev.kind !== "user") return;
+    setMessages((p) =>
+      p.map((m, i) => (i === idx && m.kind === "assistant" ? { ...m, compare: { status: "loading" } } : m)),
+    );
+    try {
+      const res = await fetch("/api/compare", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accessCode, message: prev.text, history: current.historySnapshot }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setMessages((p) =>
+          p.map((m, i) =>
+            i === idx && m.kind === "assistant"
+              ? { ...m, compare: { status: "failed", error: data.error ?? "Baseline failed." } }
+              : m,
+          ),
+        );
+        return;
+      }
+      recordEvidence({
+        kind: "compare",
+        question: prev.text.length > 140 ? `${prev.text.slice(0, 140)}…` : prev.text,
+        privateUsed: current.memoryUsed.private,
+        sharedUsed: current.memoryUsed.shared,
+        snippets: current.provenance.map((p) => ({
+          plane: p.plane,
+          text: p.text,
+          blobId: p.blobId,
+          distance: p.distance,
+        })),
+        baselineChars: (data.answer as string).length,
+      });
+      setMessages((p) =>
+        p.map((m, i) =>
+          i === idx && m.kind === "assistant" ? { ...m, compare: { status: "done", baseline: data.answer } } : m,
+        ),
+      );
+      scrollDown();
+    } catch (e) {
+      setMessages((p) =>
+        p.map((m, i) =>
+          i === idx && m.kind === "assistant"
+            ? { ...m, compare: { status: "failed", error: e instanceof Error ? e.message : "Network error." } }
+            : m,
+        ),
+      );
+    }
+  }, [messages, accessCode]);
+
   const newConversation = useCallback(() => {
-    // Clears the visible session transcript only. Long-term memory stays in
-    // Walrus under the same server-derived namespace — cross-session proof
-    // must come from recall, never from this local transcript.
+    // Same user, fresh thread. Long-term memory stays in Walrus under the
+    // same server-derived namespace — cross-session proof must come from
+    // recall, never from this local transcript.
     setMessages([]);
     setError("");
     setDraft("");
     setFixOpen(false);
+  }, []);
+
+  const switchUser = useCallback(() => {
+    // Different user entirely: drop the thread AND the identity, back to the
+    // access-code gate. Walrus memories are untouched (server-side).
+    setMessages([]);
+    setError("");
+    setDraft("");
+    setFixOpen(false);
+    setAccessCode("");
+    setStarted(false);
   }, []);
 
   if (!started) {
@@ -438,10 +630,25 @@ export default function ChatPage() {
           </button>
           <button
             onClick={newConversation}
+            title="Same user, fresh thread (your memories stay)"
             className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
           >
             New conversation
           </button>
+          <button
+            onClick={switchUser}
+            title="Different user: back to the access-code gate (Walrus memories untouched)"
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+          >
+            Switch user
+          </button>
+          <Link
+            href="/evidence"
+            title="Session-only proof: writes, comparisons, demo card"
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+          >
+            Evidence
+          </Link>
         </div>
       </header>
 
@@ -462,10 +669,27 @@ export default function ChatPage() {
             </div>
           ) : (
             <div key={i} className="max-w-[95%]">
-              <p className="whitespace-pre-wrap rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-sm leading-6 text-neutral-100">
-                {m.text}
-              </p>
+              <div className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-sm leading-6 text-neutral-100">
+                <Markdown text={m.text} />
+              </div>
               <MemoryLens msg={m} historyTurns={m.historyTurns} />
+              {(m.memoryUsed.private || m.memoryUsed.shared) && !m.compare && (
+                <button
+                  onClick={() => void runCompare(i)}
+                  className="mt-1.5 rounded-md border border-neutral-700 px-3 py-1.5 text-[11px] text-neutral-300 hover:border-emerald-700 hover:text-emerald-300"
+                >
+                  Compare without memory
+                </button>
+              )}
+              {m.compare?.status === "loading" && (
+                <p className="mt-1.5 text-[11px] text-neutral-500">Generating no-memory baseline — no Walrus recall, nothing stored…</p>
+              )}
+              {m.compare?.status === "failed" && (
+                <p className="mt-1.5 text-[11px] text-red-300">Baseline failed: {m.compare.error}</p>
+              )}
+              {m.compare?.status === "done" && (
+                <CompareCard original={m} baseline={m.compare.baseline} />
+              )}
               {m.degradedMemory === true && (
                 <p className="mt-1 text-[11px] text-amber-400/80">Some memory sources were temporarily unavailable. Meros answered from the context it could retrieve.</p>
               )}

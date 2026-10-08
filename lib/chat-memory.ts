@@ -81,6 +81,10 @@ export function normalizeMemories(
   return out;
 }
 
+export const NO_MEMORY_SYSTEM_INSTRUCTION = `You are Meros, a helpful product-support assistant. Answer the user's current question directly and practically.
+
+IMPORTANT: You are running in no-memory baseline mode. No long-term memory was consulted for this answer — no private user context and no shared support patterns. Answer ONLY from the current conversation below. Do not claim to remember anything about the user beyond what they just said.`;
+
 export function buildSystemInstruction(memories: MemoryItem[]): string {
   const priv = memories.filter((m) => m.plane === "private");
   const shared = memories.filter((m) => m.plane === "shared");
