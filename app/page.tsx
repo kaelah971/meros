@@ -34,10 +34,20 @@ export default function Home() {
           P0 diagnostic
         </Link>
       </div>
-      <p className="mt-6 text-xs text-neutral-500">
-        Fictional demo data only. Raw access codes never leave the request body
-        as a namespace — the server derives meros:user:&lt;hash&gt; internally.
-      </p>
+      <div className="mt-8 flex gap-3">
+        <Link
+          href="/signup"
+          className="inline-block rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 hover:bg-emerald-400"
+        >
+          Create workspace
+        </Link>
+        <Link
+          href="/login"
+          className="inline-block rounded-md border border-neutral-700 px-5 py-2.5 text-sm text-neutral-200 hover:border-neutral-500"
+        >
+          Sign in
+        </Link>
+      </div>
     </main>
   );
 }
