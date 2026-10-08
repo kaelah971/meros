@@ -20,12 +20,20 @@ export default function Home() {
         <li>Wait for Stored on Walrus + blob reference.</li>
         <li>Start a fresh session (clear) and recall with the same code.</li>
       </ol>
-      <Link
-        href="/dev"
-        className="mt-8 inline-block rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 hover:bg-emerald-400"
-      >
-        Open the P0 diagnostic →
-      </Link>
+      <div className="mt-8 flex gap-3">
+        <Link
+          href="/chat"
+          className="inline-block rounded-md bg-emerald-500 px-5 py-2.5 text-sm font-medium text-neutral-950 hover:bg-emerald-400"
+        >
+          Open Meros chat →
+        </Link>
+        <Link
+          href="/dev"
+          className="inline-block rounded-md border border-neutral-700 px-5 py-2.5 text-sm text-neutral-200 hover:border-neutral-500"
+        >
+          P0 diagnostic
+        </Link>
+      </div>
       <p className="mt-6 text-xs text-neutral-500">
         Fictional demo data only. Raw access codes never leave the request body
         as a namespace — the server derives meros:user:&lt;hash&gt; internally.

@@ -71,6 +71,9 @@ export async function rememberPrivate(
   };
 }
 
+/** Shared institutional namespace. Written only via explicit promotion (later slice). */
+export const SHARED_FIXES_NAMESPACE = "meros:shared:fixes";
+
 /**
  * Semantic recall scoped to the caller's private namespace only.
  * No LLM involved — this proves Walrus itself works.
@@ -99,4 +102,16 @@ export async function recallPrivate(
       ...(r.created_at ? { createdAt: r.created_at } : {}),
     })),
   };
+}
+
+/**
+ * Semantic recall over the shared approved-fixes namespace.
+ * Empty namespace is a normal result (no promotion workflow yet) —
+ * callers must treat zero hits as success, not failure.
+ */
+export async function recallShared(
+  query: string,
+  opts?: { topK?: number; maxDistance?: number },
+): Promise<{ results: RecallHit[]; total: number }> {
+  return recallPrivate(SHARED_FIXES_NAMESPACE, query, opts);
 }

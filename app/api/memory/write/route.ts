@@ -38,11 +38,18 @@ export async function POST(req: Request) {
   if (text.length > 8000)
     return NextResponse.json({ ok: false, error: "text too long (max 8000)" }, { status: 400 });
 
-  const type =
+  const requestedType =
     typeof body.type === "string" && P0_TYPES.has(body.type.toUpperCase())
       ? body.type.toUpperCase()
       : "PROFILE";
-  const tagged = `[${type}] ${text}`;
+  // Exact-once prefix: if the text already carries a known [TYPE] tag (e.g.
+  // the /dev default "[PROFILE] Uses Excel…"), keep it as-is instead of
+  // producing "[PROFILE] [PROFILE] …". Existing double-tagged Walrus
+  // memories are left untouched (no migration/deletion).
+  const existingTag = text.match(/^\[([A-Za-z_]+)\]\s*/);
+  const hasKnownTag = !!existingTag && P0_TYPES.has(existingTag[1].toUpperCase());
+  const type = hasKnownTag ? existingTag![1].toUpperCase() : requestedType;
+  const tagged = hasKnownTag ? text : `[${type}] ${text}`;
 
   // Operational metadata (best-effort when Neon is configured).
   const salt = getIdSalt();

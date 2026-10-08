@@ -29,6 +29,18 @@ npm run dev                  # open http://localhost:3000/dev
 | `GEMINI_API_KEY` | no | Scaffold only in P0 |
 | `MEROS_ID_SALT` | no | Defaults to `meros-p0-v1`. Changing it remaps all namespaces |
 
+## Chat (memory-aware support)
+
+`/chat` — access-code entry → thread + composer → Gemini Flash answer with a
+**Memory Lens** per answer ("Why this answer?" → Your private memory ·
+Shared support memory · Current conversation). `POST /api/chat` takes only
+`{accessCode, message, history}`; the server derives private + shared
+namespaces, recalls both planes in parallel, filters at distance < 0.8,
+dedupes by blob/text, caps count/tokens, and returns provenance strictly from
+injected memories. Zero-memory users get a normal useful answer with honest
+"No relevant memory found" copy. No promotion workflow yet — shared fixes
+stay empty until a later slice.
+
 ## Diagnostic proof (fresh-session)
 
 1. Open `/dev`, enter access code e.g. `P0-ALICE-01`
