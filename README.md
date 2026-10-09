@@ -19,6 +19,17 @@ Memory-native customer support.
 **Walrus Memory Agent ID:**  
 `0xb812495947fc6e4276569d60da39da7cc86a3a1b47351abf9a6635987791229a`
 
+**MemWal Delegate Public Key:**  
+`9123dfc8a526eed234961f63f533665679bbda9c7faafa1d201a0dfa7b4084c5`
+
+**Walrus Memory Integration:** MemWal SDK (`@mysten-incubation/memwal`)
+
+**Connection Method:** `MemWal.create(...)`
+
+**Durable Writes:** `rememberAndWait(...)`
+
+**Semantic Recall:** `recall(...)`
+
 **Mainnet Memories / Blobs:** 38
 
 **Required Minimum:** 10
