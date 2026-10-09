@@ -4,6 +4,16 @@ Memory-native customer support.
 
 > Solve it once. Remember it for everyone.
 
+## Project Links
+
+**Live App:** https://usemeros.vercel.app
+
+**Demo Video:** https://youtu.be/9kmpZT66M4k?si=e17SXph7HeJx7L5x
+
+**Medium Article:** https://medium.com/@kaelah679/how-meros-turns-support-conversations-into-shared-memory-20fa5ae4e4b1
+
+---
+
 Meros remembers each customer privately and turns confirmed, staff-approved resolutions into shared support memory. Returning customers continue with context. New customers with a recurring issue start from the proven fix — without seeing anyone else's history.
 
 Walrus Memory · Gemini · Neon · Better Auth · Next.js
@@ -284,11 +294,9 @@ The suite mixes fast pure tests and marked live integration tests (live Neon; Wa
 
 ## Deployment / live demo
 
-```text
-[Deployment URL — add after production deploy]
-```
-
-No production URL is claimed in this README until one exists.
+- **Live app:** https://usemeros.vercel.app
+- **Demo video:** https://youtu.be/9kmpZT66M4k?si=e17SXph7HeJx7L5x
+- **Medium article:** https://medium.com/@kaelah679/how-meros-turns-support-conversations-into-shared-memory-20fa5ae4e4b1
 
 <!-- Screenshots: no image assets are checked into the repo yet.
      When ready, add to e.g. docs/screenshots/ and link the strongest four:
