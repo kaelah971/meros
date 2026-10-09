@@ -12,6 +12,19 @@ Memory-native customer support.
 
 **Medium Article:** https://medium.com/@kaelah679/how-meros-turns-support-conversations-into-shared-memory-20fa5ae4e4b1
 
+## Submission Proof
+
+**Walrus Network:** Mainnet
+
+**Walrus Memory Agent ID:**  
+`0xb812495947fc6e4276569d60da39da7cc86a3a1b47351abf9a6635987791229a`
+
+**Mainnet Memories / Blobs:** 38
+
+**Required Minimum:** 10
+
+**Demo users:** Alice → Bob cross-customer shared-memory flow
+
 ---
 
 Meros remembers each customer privately and turns confirmed, staff-approved resolutions into shared support memory. Returning customers continue with context. New customers with a recurring issue start from the proven fix — without seeing anyone else's history.
