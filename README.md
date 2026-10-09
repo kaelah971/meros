@@ -4,6 +4,23 @@ Memory-native customer support.
 
 > Solve it once. Remember it for everyone.
 
+# **Tools I Used to Connect Meros with Walrus Memory**
+
+**Walrus Memory SDK:** MemWal SDK (`@mysten-incubation/memwal`)
+
+**Connection Method:** `MemWal.create(...)`
+
+**Durable Memory Writes:** `rememberAndWait(...)`
+
+**Semantic Memory Recall:** `recall(...)`
+
+**Network:** Walrus Memory Mainnet
+
+**MemWal Delegate Public Key:**  
+`9123dfc8a526eed234961f63f533665679bbda9c7faafa1d201a0dfa7b4084c5`
+
+---
+
 ## Project Links
 
 **Live App:** https://usemeros.vercel.app
