@@ -91,12 +91,12 @@ export function WorkspaceFinder() {
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}
-          className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2.5 font-mono text-sm text-[#F5F7F5] outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
+          className="meros-glass-input flex-1 border border-transparent px-3.5 py-2.5 font-mono text-sm text-[#F5F7F5] outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
         />
         <button
           onClick={go}
           disabled={!slug.trim()}
-          className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-semibold text-[#030806] disabled:opacity-40 hover:bg-[#9AFF8D]"
+          className="rounded-xl bg-[#77FF75] px-5 py-2.5 text-sm font-semibold text-[#030806] disabled:opacity-40 hover:bg-[#9AFF8D]"
         >
           Continue
         </button>
