@@ -5,7 +5,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { parseBlocks, type BlockNode, type InlineNode } from "@/lib/markdown";
 import { recordEvidence, shortBlob } from "@/lib/evidence";
 import { authClient } from "@/lib/better-auth-client";
+import { captureNoteForResult } from "@/lib/capture-status";
+import { CUSTOMER_SIGN_OUT_ERROR, signOutCustomerSession } from "@/lib/customer-signout";
 import { PageBackdrop } from "@/components/meros-ui";
+import {
+  MAX_ATTACHMENTS,
+  MAX_RECORD_SECONDS,
+  formatBytes,
+  validateAttachment,
+  type AttachmentKind,
+} from "@/lib/attachments";
 
 type ProvenanceItem = {
   plane: "private" | "shared" | "knowledge";
@@ -14,8 +23,21 @@ type ProvenanceItem = {
   distance: number;
 };
 
+/** A file picked (or recorded) but not yet sent. Raw bytes stay in memory
+ *  only until a successful send; only metadata ever reaches the server DB. */
+interface PendingAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  kind: AttachmentKind;
+  sizeBytes: number;
+  data: string;
+  thumbnailUrl?: string;
+  durationSec?: number;
+}
+
 type Msg =
-  | { kind: "user"; text: string }
+  | { kind: "user"; text: string; attachments?: { filename: string; kind: AttachmentKind }[] }
   | {
       kind: "assistant";
       text: string;
@@ -24,6 +46,7 @@ type Msg =
       historyTurns: number;
       captureNote?: string;
       degradedMemory?: boolean;
+      attachmentNote?: string | null;
       historySnapshot: { role: "user" | "assistant"; text: string }[];
       compare?:
         | { status: "loading" }
@@ -274,19 +297,17 @@ async function captureTurn(
       body: JSON.stringify({ workspaceSlug, message, answer, history, knownTexts }),
     });
     const data = await res.json();
-    if (!data.ok) return "Private memory save unavailable right now.";
+    // Endpoint-level ok:false means no Walrus write was attempted
+    // (identity/extraction/transport failure upstream). Stay silent rather
+    // than implying a failed save.
+    if (!data.ok) return null;
     const facts = (data.facts ?? []) as { status: string; text?: string; blobId?: string }[];
     for (const f of facts) {
       if (f.status === "stored" && f.blobId) {
         recordEvidence({ kind: "private-write", workspace: workspaceSlug, text: f.text ?? "", blobId: f.blobId, status: "stored" });
       }
     }
-    if (facts.length === 0) return null;
-    const stored = facts.filter((f) => f.status === "stored").length;
-    const failed = facts.filter((f) => f.status === "failed").length;
-    if (stored > 0 && failed === 0) return `Remembered ${stored} private memor${stored === 1 ? "y" : "ies"} for next time.`;
-    if (stored > 0) return `Remembered ${stored}, failed to save ${failed} — retry later.`;
-    return "Could not save private memory — nothing was stored.";
+    return captureNoteForResult(data);
   } catch {
     return null;
   }
@@ -326,6 +347,18 @@ export function SupportChat({
   >(null);
   const [showHistory, setShowHistory] = useState(false);
   const [historyFilter, setHistoryFilter] = useState("");
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [recordingSec, setRecordingSec] = useState<number | null>(null);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const signOutInFlightRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const recordStartedAtRef = useRef<number>(0);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const scrollDown = () => {
@@ -341,9 +374,211 @@ export function SupportChat({
   // sent — session auth (product) or nothing (dev console, server-gated).
   const identityBody = (extra: Record<string, unknown>) => ({ workspaceSlug, ...extra });
 
+  const readFileData = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = typeof reader.result === "string" ? reader.result : "";
+        const comma = url.indexOf(",");
+        if (comma < 0) reject(new Error("Could not read file."));
+        else resolve(url.slice(comma + 1));
+      };
+      reader.onerror = () => reject(new Error("Could not read file."));
+      reader.readAsDataURL(file);
+    });
+
+  const removePending = useCallback((id: string) => {
+    setPending((prev) => {
+      const found = prev.find((p) => p.id === id);
+      if (found?.thumbnailUrl) URL.revokeObjectURL(found.thumbnailUrl);
+      return prev.filter((p) => p.id !== id);
+    });
+    setAttachError(null);
+  }, []);
+
+  const clearPending = useCallback(() => {
+    setPending((prev) => {
+      for (const p of prev) if (p.thumbnailUrl) URL.revokeObjectURL(p.thumbnailUrl);
+      return [];
+    });
+  }, []);
+
+  const pickFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const list = Array.from(files);
+      if (list.length === 0) return;
+      setAttachError(null);
+      if (pending.length + list.length > MAX_ATTACHMENTS) {
+        setAttachError(`At most ${MAX_ATTACHMENTS} attachments per message.`);
+        return;
+      }
+      for (const file of list) {
+        const checked = validateAttachment({
+          filename: file.name,
+          mimeType: file.type,
+          sizeBytes: file.size,
+        });
+        if (!checked.ok) {
+          setAttachError(checked.error);
+          return;
+        }
+        try {
+          const data = await readFileData(file);
+          const a = checked.attachment;
+          const entry: PendingAttachment = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            filename: a.filename,
+            mimeType: a.mimeType,
+            kind: a.kind,
+            sizeBytes: a.sizeBytes,
+            data,
+            thumbnailUrl: a.kind === "image" ? URL.createObjectURL(file) : undefined,
+          };
+          setPending((prev) => [...prev, entry]);
+        } catch {
+          setAttachError(`Could not read “${file.name}”.`);
+          return;
+        }
+      }
+    },
+    [pending.length],
+  );
+
+  const stopRecorderTracks = useCallback(() => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    recorderRef.current = null;
+    if (streamRef.current) {
+      for (const t of streamRef.current.getTracks()) t.stop();
+      streamRef.current = null;
+    }
+    setRecordingSec(null);
+  }, []);
+
+  const cancelRecording = useCallback(() => {
+    try {
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.ondataavailable = null;
+        recorderRef.current.onstop = null;
+        recorderRef.current.stop();
+      }
+    } catch {
+      // Discard silently — cancel means “forget this recording”.
+    }
+    recordChunksRef.current = [];
+    stopRecorderTracks();
+  }, [stopRecorderTracks]);
+
+  const finishRecording = useCallback(() => {
+    const rec = recorderRef.current;
+    if (!rec) return;
+    const secs = Math.max(1, Math.round((Date.now() - recordStartedAtRef.current) / 1000));
+    rec.onstop = () => {
+      const blob = new Blob(recordChunksRef.current, { type: rec.mimeType || "audio/webm" });
+      recordChunksRef.current = [];
+      stopRecorderTracks();
+      const filename = `voice-message-${new Date().toISOString().replace(/[:.]/g, "-")}.${
+        blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : blob.type.includes("wav") ? "wav" : "webm"
+      }`;
+      const checked = validateAttachment({ filename, mimeType: blob.type || "audio/webm", sizeBytes: blob.size });
+      if (!checked.ok) {
+        setAttachError(checked.error);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = typeof reader.result === "string" ? reader.result : "";
+        const comma = url.indexOf(",");
+        if (comma < 0) {
+          setAttachError("Could not read the recording.");
+          return;
+        }
+        const a = checked.attachment;
+        setPending((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            filename: a.filename,
+            mimeType: a.mimeType,
+            kind: a.kind,
+            sizeBytes: a.sizeBytes,
+            data: url.slice(comma + 1),
+            durationSec: secs,
+          },
+        ]);
+        setAttachError(null);
+      };
+      reader.onerror = () => setAttachError("Could not read the recording.");
+      reader.readAsDataURL(blob);
+    };
+    try {
+      rec.stop();
+    } catch {
+      setAttachError("Could not finish the recording.");
+      stopRecorderTracks();
+    }
+  }, [stopRecorderTracks]);
+
+  const startRecording = useCallback(async () => {
+    setAttachError(null);
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setAttachError("Voice messages aren’t supported in this browser. Try Chrome or Edge on desktop.");
+      return;
+    }
+    if (pending.length >= MAX_ATTACHMENTS) {
+      setAttachError(`At most ${MAX_ATTACHMENTS} attachments per message.`);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      recordChunksRef.current = [];
+      const mimeType = ["audio/webm", "audio/mp4", "audio/ogg", "audio/wav"].find((m) =>
+        MediaRecorder.isTypeSupported(m),
+      );
+      const rec = mimeType
+        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
+        : new MediaRecorder(stream, { audioBitsPerSecond: 32000 });
+      recorderRef.current = rec;
+      recordStartedAtRef.current = Date.now();
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data);
+        const elapsed = Math.floor((Date.now() - recordStartedAtRef.current) / 1000);
+        if (elapsed >= MAX_RECORD_SECONDS) finishRecording();
+      };
+      rec.start(1000);
+      setRecordingSec(0);
+      recordTimerRef.current = setInterval(() => {
+        setRecordingSec(Math.floor((Date.now() - recordStartedAtRef.current) / 1000));
+      }, 500);
+    } catch (e) {
+      const name = e instanceof Error ? e.name : "";
+      setAttachError(
+        name === "NotAllowedError"
+          ? "Microphone access was denied. Allow microphone use in your browser to send voice messages."
+          : name === "NotFoundError"
+            ? "No microphone was found on this device."
+            : "Could not start recording. Check your microphone and try again.",
+      );
+      stopRecorderTracks();
+    }
+  }, [pending.length, finishRecording, stopRecorderTracks]);
+
+  // Stop tracks if the component unmounts mid-recording.
+  useEffect(
+    () => () => {
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      if (streamRef.current) for (const t of streamRef.current.getTracks()) t.stop();
+    },
+    [],
+  );
+
   const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text || sending || !workspaceSlug.trim()) return;
+    const outgoing = pending;
+    if ((!text && outgoing.length === 0) || sending || !workspaceSlug.trim()) return;
     setSending(true);
     setError("");
     setResolvedCard(null);
@@ -358,7 +593,8 @@ export function SupportChat({
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setMessages((prev) => [...prev, { kind: "user", text }]);
+    const outgoingMetas = outgoing.map((a) => ({ filename: a.filename, kind: a.kind }));
+    setMessages((prev) => [...prev, { kind: "user", text, attachments: outgoingMetas }]);
     setDraft("");
     scrollDown();
     try {
@@ -366,7 +602,18 @@ export function SupportChat({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(
-          identityBody({ message: text, history, conversationId, clientMessageId }),
+          identityBody({
+            message: text,
+            history,
+            conversationId,
+            clientMessageId,
+            attachments: outgoing.map((a) => ({
+              filename: a.filename,
+              mimeType: a.mimeType,
+              kind: a.kind,
+              data: a.data,
+            })),
+          }),
         ),
       });
       const data = await res.json();
@@ -374,6 +621,8 @@ export function SupportChat({
         setError(data.error ?? "Something went wrong. Try again.");
         return;
       }
+      // Clear pending attachments only after a successful send.
+      clearPending();
       const assistantIdx = messages.length + 1;
       const knownTexts: string[] = (data.provenance ?? []).map((p: ProvenanceItem) => p.text);
       setMessages((prev) => [
@@ -386,6 +635,12 @@ export function SupportChat({
           historyTurns: data.historyTurns ?? history.length,
           degradedMemory: data.degradedMemory === true,
           historySnapshot: history,
+          attachmentNote:
+            Array.isArray(data.attachments) && data.attachments.length > 0
+              ? (data.attachments as { filename: string; kind: string }[])
+                  .map((a) => a.filename)
+                  .join(", ")
+              : null,
         },
       ]);
       scrollDown();
@@ -420,7 +675,7 @@ export function SupportChat({
     } finally {
       setSending(false);
     }
-  }, [draft, sending, workspaceSlug, messages, conversationId, identityBody]);
+  }, [draft, sending, workspaceSlug, messages, conversationId, identityBody, pending, clearPending]);
 
   const runCompare = useCallback(async (idx: number) => {
     // Controlled rerun: same user message + same conversation context, but
@@ -585,13 +840,22 @@ export function SupportChat({
     [workspaceSlug],
   );
 
-  // Product sign-out: Better Auth clears the session server-side, then a
-  // full reload lets the server route render the customer gate again.
+  // Product sign-out: Better Auth clears the session server-side. Only after
+  // Better Auth confirms success do we reload the same support route so the
+  // server gate re-evaluates auth and renders the customer sign-in screen.
   const signOutHere = useCallback(async () => {
-    try {
-      await authClient.signOut();
-    } finally {
-      window.location.reload();
+    if (signOutInFlightRef.current) return;
+    signOutInFlightRef.current = true;
+    setSigningOut(true);
+    setSignOutError(null);
+    const result = await signOutCustomerSession({
+      signOut: () => authClient.signOut(),
+      refreshCurrentRoute: () => window.location.reload(),
+    });
+    if (!result.ok) {
+      setSignOutError(CUSTOMER_SIGN_OUT_ERROR);
+      signOutInFlightRef.current = false;
+      setSigningOut(false);
     }
   }, []);
 
@@ -721,9 +985,10 @@ export function SupportChat({
         {isAuth && (
           <button
             onClick={() => void signOutHere()}
-            className="mt-2 w-full rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)]"
+            disabled={signingOut}
+            className="mt-2 w-full rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-1.5 text-xs text-neutral-300 hover:border-[rgba(119,255,117,0.5)] disabled:opacity-40"
           >
-            Sign out
+            {signingOut ? "Signing out…" : "Sign out"}
           </button>
         )}
       </div>
@@ -766,14 +1031,6 @@ export function SupportChat({
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => void markResolved()}
-            disabled={messages.length === 0 || !conversationId || resolving}
-            title="Confirm this issue is resolved"
-            className="rounded-md border border-[rgba(119,255,117,0.35)] px-3 py-1.5 text-xs text-[#9AFF8D] disabled:opacity-40 hover:border-[rgba(119,255,117,0.5)]"
-          >
-            {resolving ? "Resolving…" : "Mark resolved"}
-          </button>
-          <button
             onClick={() => {
               setShowHistory(true);
               if (historyList === null) void loadHistoryList();
@@ -794,10 +1051,11 @@ export function SupportChat({
           {isAuth && (
             <button
               onClick={() => void signOutHere()}
+              disabled={signingOut}
               title="Sign out and return to this workspace's sign-in screen"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-400 hover:border-neutral-500 hover:text-neutral-200"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-400 hover:border-neutral-500 hover:text-neutral-200 disabled:opacity-40"
             >
-              Sign out
+              {signingOut ? "Signing out…" : "Sign out"}
             </button>
           )}
           {!lockWorkspace && (
@@ -816,8 +1074,22 @@ export function SupportChat({
           >
             Evidence
           </Link>
+          <button
+            onClick={() => void markResolved()}
+            disabled={messages.length === 0 || !conversationId || resolving}
+            title="Confirm this issue is resolved"
+            className="rounded-md border border-[rgba(119,255,117,0.35)] px-3 py-1.5 text-xs text-[#9AFF8D] disabled:opacity-40 hover:border-[rgba(119,255,117,0.5)]"
+          >
+            {resolving ? "Resolving…" : "Mark resolved"}
+          </button>
         </div>
       </header>
+
+      {signOutError && (
+        <p role="alert" className="mt-3 rounded-md border border-red-900 bg-red-950/40 px-3 py-2 text-xs text-red-200">
+          {signOutError}
+        </p>
+      )}
 
       <div className="flex-1 space-y-4 py-6">
         {messages.length === 0 && (
@@ -830,9 +1102,27 @@ export function SupportChat({
         {messages.map((m, i) =>
           m.kind === "user" ? (
             <div key={i} className="flex justify-end">
-              <p className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-[rgba(119,255,117,0.12)] border border-[rgba(119,255,117,0.3)] px-4 py-2.5 text-sm text-white">
-                {m.text}
-              </p>
+              <div className="max-w-[85%]">
+                {m.text ? (
+                  <p className="whitespace-pre-wrap rounded-lg bg-[rgba(119,255,117,0.12)] border border-[rgba(119,255,117,0.3)] px-4 py-2.5 text-sm text-white">
+                    {m.text}
+                  </p>
+                ) : null}
+                {m.attachments && m.attachments.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap justify-end gap-1.5">
+                    {m.attachments.map((a, j) => (
+                      <span
+                        key={`${a.filename}-${j}`}
+                        title={`${a.filename} (${a.kind})`}
+                        className="inline-flex max-w-full items-center gap-1 truncate rounded-md border border-[rgba(119,255,117,0.3)] bg-[#06100B] px-2 py-1 font-mono text-[11px] text-neutral-300"
+                      >
+                        {a.kind === "image" ? "🖼" : a.kind === "audio" ? "🎙" : "📄"}{" "}
+                        <span className="truncate">{a.filename}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div key={i} className="max-w-[95%]">
@@ -860,6 +1150,9 @@ export function SupportChat({
               {m.degradedMemory === true && (
                 <p className="mt-1 text-[11px] text-amber-400/80">Some memory sources were temporarily unavailable. Meros answered from the context it could retrieve.</p>
               )}
+              {m.attachmentNote ? (
+                <p className="mt-1 text-[11px] text-neutral-500">Current message · Attachment ({m.attachmentNote})</p>
+              ) : null}
               {m.captureNote && (
                 <p className="mt-1 text-[11px] text-neutral-500">{m.captureNote}</p>
               )}
@@ -894,7 +1187,91 @@ export function SupportChat({
       </div>
 
       <div className="sticky bottom-0 border-t border-[rgba(119,255,117,0.14)] bg-[#06100B]/95 backdrop-blur py-3">
-        <div className="flex gap-2">
+        {pending.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5" aria-label="Pending attachments">
+            {pending.map((a) => (
+              <span
+                key={a.id}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-[rgba(119,255,117,0.3)] bg-[#06100B] px-2 py-1.5 text-xs text-neutral-200"
+              >
+                {a.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={a.thumbnailUrl} alt="" className="h-8 w-8 rounded object-cover" />
+                ) : (
+                  <span aria-hidden>{a.kind === "audio" ? "🎙" : "📄"}</span>
+                )}
+                <span className="min-w-0">
+                  <span className="block max-w-[140px] truncate font-mono text-[11px]" title={a.filename}>
+                    {a.filename}
+                  </span>
+                  <span className="block font-mono text-[10px] text-neutral-500">
+                    {a.kind}
+                    {typeof a.durationSec === "number" ? ` · ${a.durationSec}s` : ""} · {formatBytes(a.sizeBytes)}
+                  </span>
+                </span>
+                <button
+                  onClick={() => removePending(a.id)}
+                  disabled={sending}
+                  aria-label={`Remove attachment ${a.filename}`}
+                  title="Remove attachment"
+                  className="rounded px-1 text-neutral-400 hover:text-neutral-100 disabled:opacity-40"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {recordingSec !== null && (
+          <div className="mb-2 flex items-center gap-3 rounded-md border border-red-900 bg-red-950/40 px-3 py-2" role="status" aria-live="polite">
+            <span aria-hidden className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+            </span>
+            <span className="font-mono text-xs text-red-200">Recording {recordingSec}s / {MAX_RECORD_SECONDS}s</span>
+            <span className="flex-1" />
+            <button
+              onClick={cancelRecording}
+              className="rounded-md border border-red-900 px-3 py-1.5 text-xs text-red-200 hover:border-red-700"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={finishRecording}
+              className="rounded-md bg-[#77FF75] px-3 py-1.5 text-xs font-medium text-[#030806] hover:bg-[#9AFF8D]"
+            >
+              Finish
+            </button>
+          </div>
+        )}
+        {attachError && (
+          <p role="alert" className="mb-2 text-xs text-red-300">
+            {attachError}
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            aria-hidden
+            tabIndex={-1}
+            accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.csv,.md,audio/*"
+            multiple
+            onChange={(e) => {
+              if (e.target.files) void pickFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending}
+            aria-label="Attach a file"
+            title="Attach an image or document (PNG, JPG, WEBP, PDF, TXT, CSV)"
+            className="shrink-0 rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-2.5 text-sm text-neutral-300 hover:border-[rgba(119,255,117,0.5)] disabled:opacity-40"
+          >
+            +
+          </button>
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -906,12 +1283,21 @@ export function SupportChat({
             }}
             aria-label="Describe your issue"
             placeholder="Describe your issue…"
-            className="flex-1 rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
+            className="min-w-0 flex-1 rounded-md border border-[rgba(119,255,117,0.25)] bg-[rgba(10,27,18,0.72)] px-3 py-2.5 text-sm outline-none placeholder:text-neutral-600 focus:border-[#77FF75]"
           />
           <button
+            onClick={() => void startRecording()}
+            disabled={sending || recordingSec !== null}
+            aria-label={typeof MediaRecorder === "undefined" ? "Voice messages not supported in this browser" : "Record a voice message"}
+            title="Record a voice message"
+            className="shrink-0 rounded-md border border-[rgba(119,255,117,0.25)] px-3 py-2.5 text-sm text-neutral-300 hover:border-[rgba(119,255,117,0.5)] disabled:opacity-40"
+          >
+            <span aria-hidden>🎙</span>
+          </button>
+          <button
             onClick={send}
-            disabled={sending || !draft.trim()}
-            className="rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-[#030806] disabled:opacity-40 hover:bg-[#9AFF8D]"
+            disabled={sending || (!draft.trim() && pending.length === 0)}
+            className="shrink-0 rounded-md bg-[#77FF75] px-5 py-2.5 text-sm font-medium text-[#030806] disabled:opacity-40 hover:bg-[#9AFF8D]"
           >
             {sending ? "Sending…" : "Send"}
           </button>

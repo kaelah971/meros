@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { EmptyState, StatusPill } from "@/components/meros-ui";
 import { FixCardItem, type FixCardView } from "@/components/fix-card-review";
 
@@ -13,10 +14,22 @@ export default function FixCardsView({
   initial: FixCardView[];
 }) {
   const [cards, setCards] = useState<FixCardView[]>(initial);
-  const onDone = (id: string, status: string, blobId?: string) =>
+  // Pick up refetched server data (e.g. after a correction adds a row).
+  useEffect(() => setCards(initial), [initial]);
+  const router = useRouter();
+  const onDone = (id: string, status: string, blobId?: string) => {
+    // A correction creates a NEW active row server-side: mark the old card
+    // superseded locally, then re-fetch so the corrected version (with its
+    // new blob proof) appears without navigation.
+    if (status === "corrected") {
+      setCards((prev) => prev.map((c) => (c.id === id ? { ...c, status } : c)));
+      router.refresh();
+      return;
+    }
     setCards((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status, blobId: blobId ?? c.blobId } : c)),
     );
+  };
 
   const pending = cards.filter((c) => c.status === "pending_review");
   const rest = cards.filter((c) => c.status !== "pending_review");

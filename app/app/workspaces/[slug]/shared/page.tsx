@@ -3,6 +3,7 @@ import { currentUser } from "@/lib/auth";
 import { getOwnedWorkspace } from "@/lib/db";
 import { listFixCards } from "@/lib/support-ops";
 import { shortBlob } from "@/lib/evidence";
+import { formatUtc } from "@/lib/datetime";
 import { EmptyState } from "@/components/meros-ui";
 
 /**
@@ -22,6 +23,7 @@ export default async function SharedMemoryPage({
   if (!ws) redirect("/app");
 
   const shared = await listFixCards(ws.id, "shared");
+  const superseded = await listFixCards(ws.id, "superseded");
 
   return (
     <div>
@@ -53,11 +55,30 @@ export default async function SharedMemoryPage({
                     </a>
                   </>
                 ) : null}
-                {c.reviewed_at ? ` · reviewed ${new Date(c.reviewed_at).toLocaleString()}` : ""}
+                {c.reviewed_at ? ` · reviewed ${formatUtc(c.reviewed_at)}` : ""}
               </p>
             </li>
           ))}
         </ul>
+      )}
+      {superseded.length > 0 && (
+        <details className="mt-4 text-xs text-neutral-500">
+          <summary className="cursor-pointer hover:text-neutral-300">
+            Superseded versions ({superseded.length}) — kept for audit, never recalled
+          </summary>
+          <ul className="mt-2 space-y-2">
+            {superseded.map((c) => (
+              <li key={c.id} className="rounded-md border border-neutral-800 bg-[#06100B] px-3 py-2">
+                <pre className="whitespace-pre-wrap font-mono text-[11px] leading-5 text-neutral-500">
+                  {c.reviewed_text || c.candidate_text}
+                </pre>
+                <p className="mt-1 font-mono text-[10px] text-neutral-600">
+                  {c.walrus_blob_id ? `old blob ${shortBlob(c.walrus_blob_id)}` : "no blob"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   );

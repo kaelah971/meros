@@ -3,6 +3,7 @@ import {
   MAX_DISTANCE,
   RECALL_TOP_K,
   buildSystemInstruction,
+  dropSupersededSharedHits,
   normalizeMemories,
   type MemoryItem,
 } from "@/lib/chat-memory";
@@ -26,6 +27,13 @@ import {
 import { CHAT_RECALL_TIMEOUT_MS, recallBounded } from "@/lib/walrus";
 import { deriveKnowledgeNamespaceV2 } from "@/lib/tenant";
 import { isWalrusConfigured, walrusBlocker } from "@/lib/env";
+import {
+  MAX_ATTACHMENTS,
+  toAttachmentMeta,
+  validateInboundAttachment,
+  type AttachmentMeta,
+  type AttachmentPayload,
+} from "@/lib/attachments";
 
 const MAX_HISTORY_TURNS = 12;
 
@@ -40,7 +48,7 @@ export async function POST(req: Request) {
   // Product identity is the Better Auth session. Client supplies only the
   // workspace route context — never customerId, accessCode, or namespaces.
   // conversationId (when present) is verified against that identity below.
-  let body: { workspaceSlug?: unknown; message?: unknown; history?: unknown; conversationId?: unknown; clientMessageId?: unknown }; // NOTE: P7 product flow uses session auth (legacy /chat access-code path is dev-only).
+  let body: { workspaceSlug?: unknown; message?: unknown; history?: unknown; conversationId?: unknown; clientMessageId?: unknown; attachments?: unknown }; // NOTE: P7 product flow uses session auth (legacy /chat access-code path is dev-only).
   try {
     body = await req.json();
   } catch {
@@ -60,7 +68,25 @@ export async function POST(req: Request) {
   }
 
   const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (!message)
+  // Attachments are validated server-side and never trusted as presented:
+  // re-check MIME family, size, and count here. Raw bytes live only for
+  // this generation request — only metadata is ever persisted.
+  const rawAttachments = Array.isArray(body.attachments) ? body.attachments.slice(0, MAX_ATTACHMENTS + 1) : [];
+  if (rawAttachments.length > MAX_ATTACHMENTS)
+    return NextResponse.json({ ok: false, error: `at most ${MAX_ATTACHMENTS} attachments per message` }, { status: 400 });
+  const attachments: AttachmentPayload[] = [];
+  const attachmentMetas: AttachmentMeta[] = [];
+  for (const raw of rawAttachments) {
+    const checked =
+      raw !== null && typeof raw === "object"
+        ? validateInboundAttachment(raw as Record<string, unknown>)
+        : { ok: false as const, error: "malformed attachment" };
+    if (!checked.ok)
+      return NextResponse.json({ ok: false, error: checked.error }, { status: 400 });
+    attachments.push({ ...checked.attachment, data: checked.data });
+    attachmentMetas.push(toAttachmentMeta(checked.attachment));
+  }
+  if (!message && attachments.length === 0)
     return NextResponse.json({ ok: false, error: "message must not be empty" }, { status: 400 });
   if (message.length > 4000)
     return NextResponse.json({ ok: false, error: "message too long (max 4000)" }, { status: 400 });
@@ -106,6 +132,7 @@ export async function POST(req: Request) {
       conversationId,
       content: message,
       clientId: typeof body.clientMessageId === "string" ? body.clientMessageId : null,
+      attachments: attachmentMetas,
     });
   } catch (e) {
     return NextResponse.json(
@@ -165,7 +192,24 @@ export async function POST(req: Request) {
       }),
   ]);
   const privateHits = p.results;
-  const sharedHits = s.results;
+  // Shared supersession: the old (tainted) blob still recalls from immutable
+  // Walrus storage — cross-check against Neon's active reviewed records and
+  // drop superseded blob ids before building shared context. Workspace-
+  // scoped; private/knowledge planes untouched. On lookup failure, fail open
+  // (logged) rather than 503ing the whole conversation.
+  let sharedHits = s.results;
+  try {
+    const { listSupersededSharedBlobs } = await import("@/lib/support-ops");
+    const dead = await listSupersededSharedBlobs(tenant.workspaceId);
+    if (dead.length > 0) {
+      const before = sharedHits.length;
+      sharedHits = dropSupersededSharedHits(sharedHits, dead);
+      const dropped = before - sharedHits.length;
+      if (dropped > 0) console.log(`[chat] recall shared: dropped ${dropped} superseded blob(s)`);
+    }
+  } catch (e) {
+    console.log(`[chat] supersession lookup failed (fail-open): ${e instanceof Error ? e.message : e}`);
+  }
   const knowledgeHits = k.results;
   const memoryStatus = { private: p.status, shared: s.status, knowledge: k.status } as const;
   const degradedMemory = p.status !== "ok" || s.status !== "ok" || k.status !== "ok";
@@ -183,6 +227,7 @@ export async function POST(req: Request) {
       systemInstruction: buildSystemInstruction(used),
       history,
       message,
+      attachments,
     });
     console.log(`[chat] gemini ok in ${Date.now() - tGemini}ms`);
   } catch (e) {
@@ -280,5 +325,7 @@ export async function POST(req: Request) {
     conversation: { id: conversationId, status: conversationStatus },
     issue: { status: issueStatus },
     fixCard,
+    // Echo of what the model actually saw: metadata only, never content.
+    attachments: attachmentMetas,
   });
 }

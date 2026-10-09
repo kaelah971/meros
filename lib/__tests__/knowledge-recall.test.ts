@@ -18,6 +18,21 @@ const NORTHSTAR_KNOWLEDGE = [
   "[KNOWLEDGE] Northstar Data supports CSV and XLSX imports up to 500 MB.",
 ];
 
+describe("customer sign-out control (static)", () => {
+  it("header renders an authenticated Sign out wired to Better Auth", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("components/support-chat.tsx", "utf8");
+    // Visible in the always-rendered header (not only the sidebar drawer):
+    // the header control carries its return-to-gate title.
+    expect(src).toContain('title="Sign out and return to this workspace\'s sign-in screen"');
+    expect(src).toMatch(/\{isAuth && \([\s\S]{0,600}?void signOutHere\(\)/);
+    // Uses the existing Better Auth mechanism through the guarded helper,
+    // then reloads the same URL so the server route renders the workspace gate again.
+    expect(src).toContain("signOut: () => authClient.signOut()");
+    expect(src).toContain("refreshCurrentRoute: () => window.location.reload()");
+  });
+});
+
 describe("knowledge namespace write/read identity", () => {
   it("write path and recall path derive the identical namespace string", () => {
     // Both lib/knowledge (index) and app/api/chat (recall) must call
@@ -64,7 +79,7 @@ describe("ready knowledge reaches the Gemini context", () => {
     const used = normalizeMemories(
       [],
       [],
-      NORTHSTAR_KNOWLEDGE.map((text) => hit({ text, distance: 0.3 })),
+      NORTHSTAR_KNOWLEDGE.map((text, i) => hit({ text, distance: 0.3, blobId: `kb-${i}` })),
     );
     const provenance = used.map((m) => ({
       plane: m.plane,
@@ -81,7 +96,7 @@ describe("failed planes never mask successful knowledge", () => {
   it("knowledge results survive when private/shared planes return nothing", () => {
     // A timed-out/failed plane contributes zero hits; recallBounded maps
     // that to []. The other planes' results must pass through untouched.
-    const knowledgeHits = [hit({ text: NORTHSTAR_KNOWLEDGE[1], distance: 0.35 })];
+    const knowledgeHits = [hit({ text: NORTHSTAR_KNOWLEDGE[1], distance: 0.35, blobId: "kb-x" })];
     const used = normalizeMemories([], [], knowledgeHits);
     expect(used).toHaveLength(1);
     expect(used[0].plane).toBe("knowledge");
@@ -90,9 +105,9 @@ describe("failed planes never mask successful knowledge", () => {
 
   it("knowledge results survive alongside successful private/shared hits", () => {
     const used = normalizeMemories(
-      [hit({ text: "[PROFILE] Uses Excel", distance: 0.2 })],
-      [hit({ text: "[SHARED_FIX] check delimiter", distance: 0.25 })],
-      [hit({ text: NORTHSTAR_KNOWLEDGE[1], distance: 0.35 })],
+      [hit({ text: "[PROFILE] Uses Excel", distance: 0.2, blobId: "p1" })],
+      [hit({ text: "[SHARED_FIX] check delimiter", distance: 0.25, blobId: "s1" })],
+      [hit({ text: NORTHSTAR_KNOWLEDGE[1], distance: 0.35, blobId: "k1" })],
     );
     expect(used.map((m) => m.plane).sort()).toEqual(["knowledge", "private", "shared"]);
   });
@@ -101,7 +116,7 @@ describe("failed planes never mask successful knowledge", () => {
     const used = normalizeMemories(
       [],
       [],
-      [hit({ text: NORTHSTAR_KNOWLEDGE[0], distance: MAX_DISTANCE + 0.1 })],
+      [hit({ text: NORTHSTAR_KNOWLEDGE[0], distance: MAX_DISTANCE + 0.1, blobId: "k9" })],
     );
     expect(used).toHaveLength(0);
   });

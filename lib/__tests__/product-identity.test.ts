@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { uniqueSlug } from "./fixtures";
 import { isLegacyDevIdentityEnabled } from "../env";
 import { identityError, resolveProductIdentity } from "../product-identity";
 
@@ -93,16 +94,19 @@ describe("product identity gate", () => {
       .slice("DATABASE_URL=".length);
     const sql = neon(key);
     const { organizationIdForSlug, workspaceIdForSlug } = await import("../tenant");
-    const orgId = organizationIdForSlug("gate-ws");
-    const wsId = workspaceIdForSlug("gate-ws");
-    await sql`insert into organizations (id, slug, name) values (${orgId}, 'gate-ws', 'Gate') on conflict (id) do nothing`;
-    await sql`insert into workspaces (id, organization_id, slug, name) values (${wsId}, ${orgId}, 'gate-ws', 'Gate') on conflict (id) do nothing`;
+    // Unique per run: a fixed slug would derive a fixed org id and could
+    // collide with (and then delete) a live tenant row on conflict/retry.
+    const slug = uniqueSlug("gate-ws");
+    const orgId = organizationIdForSlug(slug);
+    const wsId = workspaceIdForSlug(slug);
+    await sql`insert into organizations (id, slug, name) values (${orgId}, ${slug}, 'Gate') on conflict (id) do nothing`;
+    await sql`insert into workspaces (id, organization_id, slug, name) values (${wsId}, ${orgId}, ${slug}, 'Gate') on conflict (id) do nothing`;
     try {
       const withSpoof = await resolveProductIdentity({
-        workspaceSlug: "gate-ws",
+        workspaceSlug: slug,
         accessCode: "SPOOFED-CODE-99",
       });
-      const withoutSpoof = await resolveProductIdentity({ workspaceSlug: "gate-ws" });
+      const withoutSpoof = await resolveProductIdentity({ workspaceSlug: slug });
       // Identical auth-derived identity regardless of the spoofed code.
       expect(withSpoof.customerId).toBe(withoutSpoof.customerId);
       expect(withSpoof.privateNamespace).toBe(withoutSpoof.privateNamespace);

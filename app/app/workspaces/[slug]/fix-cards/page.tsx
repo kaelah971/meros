@@ -23,6 +23,7 @@ export default async function FixCardsPage({
       initial={cards.map((c) => ({
         id: c.id,
         candidateText: c.candidate_text,
+        reviewedText: c.reviewed_text,
         status: c.status,
         blobId: c.walrus_blob_id,
         createdAt: c.created_at,

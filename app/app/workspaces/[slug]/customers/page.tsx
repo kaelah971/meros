@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { getOwnedWorkspace } from "@/lib/db";
 import { listWorkspaceCustomers } from "@/lib/support-ops";
+import { formatUtc } from "@/lib/datetime";
 import { EmptyState } from "@/components/meros-ui";
 
 /**
@@ -44,7 +45,7 @@ export default async function CustomersPage({
             </span>
             <span className="mt-0.5 block font-mono text-[11px] text-neutral-500">
               {c.conversations} conversations · {c.open_issues} open issues
-              {c.last_activity ? ` · active ${new Date(c.last_activity).toLocaleString()}` : ""}
+              {c.last_activity ? ` · active ${formatUtc(c.last_activity)}` : ""}
             </span>
             <Link
               href={`/app/workspaces/${slug}/conversations?customer=${c.id}`}

@@ -18,6 +18,18 @@ export const MAX_DISTANCE = 0.8;
 export const MAX_MEMORY_ITEMS = 6;
 export const MAX_MEMORY_CHARS = 3000;
 
+/**
+ * Supersession filter for the shared plane: Walrus blobs are immutable, so a
+ * corrected fix lives in a NEW blob while the old blob still recalls. Drop
+ * hits whose blob id is superseded in Neon (workspace-scoped deny-list).
+ * Private/knowledge planes are never filtered here.
+ */
+export function dropSupersededSharedHits(hits: RecallHit[], supersededBlobIds: readonly string[]): RecallHit[] {
+  if (supersededBlobIds.length === 0) return hits;
+  const dead = new Set(supersededBlobIds);
+  return hits.filter((h) => !dead.has(h.blobId));
+}
+
 export function toItems(plane: Plane, hits: RecallHit[]): MemoryItem[] {
   return hits.map((h) => ({
     plane,

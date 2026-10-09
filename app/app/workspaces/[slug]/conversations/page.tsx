@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { getOwnedWorkspace } from "@/lib/db";
 import { listWorkspaceConversations } from "@/lib/support-ops";
+import { formatUtc } from "@/lib/datetime";
 import { EmptyState, StatusPill } from "@/components/meros-ui";
 
 /** Staff conversations view: workspace-scoped thread list. */
@@ -47,7 +48,7 @@ export default async function ConversationsPage({
               <span className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[11px] text-neutral-500">
                 <span>{c.customer_display}</span>
                 <StatusPill status={c.status} />
-                {c.last_message_at ? <span>{new Date(c.last_message_at).toLocaleString()}</span> : ""}
+                {c.last_message_at ? <span>{formatUtc(c.last_message_at)}</span> : ""}
               </span>
             </Link>
           </li>

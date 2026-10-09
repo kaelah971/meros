@@ -194,15 +194,100 @@ export function checkResolutionGrounding(
   };
 }
 
+// --- Claim grounding (Symptom/Cause) ------------------------------------------
+// Resolution grounding alone is not enough: an assistant hypothesis discussed
+// mid-conversation (e.g. "due to regional locale settings") can be promoted
+// into Cause as if it were established fact. Symptom/Cause claims must be
+// supported by CUSTOMER-PROVIDED evidence (user turns / quoted error text) —
+// assistant-only wording is dropped clause by clause, and the field is
+// rejected when nothing supportable remains.
+
+// Causal seams where speculation typically attaches. Separators are
+// captured so fully-supported fields rejoin byte-identically.
+const CLAIM_SEAM_RE = /(\.\s+|[!?;]+\s*|(?:,\s*)?(?:due to|because of|thanks to|caused by)\s+|\s+because\s+)/i;
+
+type ClausePart = { clause: string; sepAfter: string; index: number };
+
+function splitClauses(field: string): ClausePart[] {
+  const tokens = field.split(CLAIM_SEAM_RE);
+  const out: ClausePart[] = [];
+  for (let i = 0; i < tokens.length; i += 2) {
+    const clause = (tokens[i] ?? "").trim();
+    if (!clause) continue;
+    out.push({ clause, sepAfter: tokens[i + 1] ?? "", index: i / 2 });
+  }
+  return out;
+}
+
+export type ClaimGrounding =
+  | { ok: true; text: string; dropped: string[] }
+  | { ok: false; reason: string };
+
+/**
+ * Keep only the clauses of a Symptom/Cause field whose substantive anchors
+ * appear in customer-provided evidence. Clauses with no anchors (generic
+ * phrasing) are kept — only positively-unsupported claims are dropped.
+ */
+export function groundClaimField(field: string, userEvidence: string): ClaimGrounding {
+  const clean = field.trim();
+  if (!clean) return { ok: false, reason: "field is empty" };
+  const evidenceSet = new Set(contentStems(userEvidence));
+  const parts = splitClauses(clean);
+  if (parts.length === 0) return { ok: false, reason: "field has no readable clauses" };
+  const dropped: string[] = [];
+  const kept: ClausePart[] = parts.filter((p) => {
+    const anchors = resolutionAnchors(p.clause);
+    if (anchors.length === 0) return true;
+    const supported = anchors.some((w) => evidenceSet.has(w));
+    if (!supported) dropped.push(p.clause);
+    return supported;
+  });
+  if (kept.length === 0) {
+    return {
+      ok: false,
+      reason: `no clause of the field is supported by customer evidence (dropped: ${dropped.slice(0, 3).join(" | ") || "all"}) — refusing an ungrounded claim`,
+    };
+  }
+  // Rebuild with original separators when clauses were adjacent; a neutral
+  // ". " bridge otherwise. Nothing dropped => byte-identical to input.
+  let rebuilt = kept[0].clause;
+  for (let i = 1; i < kept.length; i++) {
+    const prev = kept[i - 1];
+    const cur = kept[i];
+    rebuilt += (cur.index === prev.index + 1 ? prev.sepAfter : ". ") + cur.clause;
+  }
+  rebuilt = rebuilt.replace(/\s+/g, " ").trim();
+  // Preserve the field's terminal punctuation when surgery removed it
+  // (e.g. "…delimiters due to X." -> "…delimiters.").
+  if (dropped.length > 0 && /[.!?]$/.test(clean) && !/[.!?;:]$/.test(rebuilt)) {
+    rebuilt += ".";
+  }
+  if (rebuilt.length < 10) {
+    return { ok: false, reason: "field has no supportable substance after speculation was removed" };
+  }
+  const anchors = resolutionAnchors(rebuilt);
+  const matched = anchors.filter((w) => evidenceSet.has(w));
+  const need = Math.min(2, anchors.length);
+  if (anchors.length > 0 && !(matched.length >= need && matched.length / anchors.length >= MIN_ANCHOR_RATIO)) {
+    return {
+      ok: false,
+      reason: `field is not grounded in customer evidence (${matched.length}/${anchors.length} anchors match) — refusing an ungrounded claim`,
+    };
+  }
+  return { ok: true, text: rebuilt, dropped };
+}
+
 /** Full server-side gate for a candidate about to enter shared memory. */
 export function validateSharedCandidate(
   text: string,
-  grounding?: { confirmation: string; context?: string },
+  grounding?: { confirmation: string; context?: string; evidence?: string },
 ): {
   ok: boolean;
   candidate?: FixCandidate;
   error?: string;
   redaction?: { passed: boolean; issues: string[] };
+  /** Present when evidence grounding rewrote the text: the safe version. */
+  sanitized?: string;
 } {
   const clean = text.trim();
   if (!clean) return { ok: false, error: "candidate is empty" };
@@ -220,6 +305,26 @@ export function validateSharedCandidate(
     const g = checkResolutionGrounding(candidate.resolution, grounding.confirmation, grounding.context ?? "");
     if (!g.grounded) {
       return { ok: false, candidate, error: g.reason };
+    }
+    // Symptom/Cause claims must come from customer-provided evidence —
+    // assistant speculation (discussed mid-thread but never confirmed) is
+    // dropped clause by clause; ungroundable fields reject the candidate.
+    if (typeof grounding.evidence === "string" && grounding.evidence.trim()) {
+      const evidence = grounding.evidence;
+      const scrubbed = { ...candidate };
+      for (const key of ["symptom", "cause"] as const) {
+        const r = groundClaimField(scrubbed[key], evidence);
+        if (!r.ok) return { ok: false, candidate, error: r.reason };
+        scrubbed[key] = r.text;
+      }
+      const sanitized = formatSharedFix(scrubbed);
+      const reparsed = parseSharedFix(sanitized);
+      if (!reparsed) return { ok: false, candidate, error: "candidate failed shape check after grounding" };
+      const redaction = checkRedaction(sanitized);
+      if (!redaction.passed) {
+        return { ok: false, candidate: reparsed, redaction, error: `redaction failed: ${redaction.issues.join(", ")}` };
+      }
+      return { ok: true, candidate: reparsed, redaction, sanitized };
     }
   }
   const redaction = checkRedaction(clean);

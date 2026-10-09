@@ -48,6 +48,7 @@ export type MessageRow = {
   memory_shared_used: boolean;
   memory_knowledge_used: boolean;
   memory_provenance: ProvenanceItem[] | null;
+  attachments?: { filename: string; mimeType: string; kind: string }[] | null;
   created_at: string;
 };
 
@@ -71,7 +72,7 @@ export type IssueRow = {
   resolved_at: string | null;
 };
 
-export type FixCardStatus = "pending_review" | "shared" | "kept_private" | "failed";
+export type FixCardStatus = "pending_review" | "shared" | "kept_private" | "failed" | "superseded";
 
 export type FixCardRow = {
   id: string;
@@ -80,6 +81,8 @@ export type FixCardRow = {
   conversation_id: string | null;
   issue_id: string | null;
   candidate_text: string;
+  reviewed_text: string | null;
+  superseded_by_fix_card_id: string | null;
   status: FixCardStatus;
   walrus_blob_id: string | null;
   created_at: string;
@@ -140,12 +143,13 @@ export async function addUserMessage(input: {
   conversationId: string;
   content: string;
   clientId?: string | null;
+  attachments?: { filename: string; mimeType: string; kind: string }[];
 }): Promise<{ id: string; deduped: boolean }> {
   const sql = await requireSql();
   const clientId = input.clientId?.trim() || randomUUID();
   const rows = (await sql`
-    insert into messages (conversation_id, client_id, role, content)
-    values (${input.conversationId}, ${clientId}, 'user', ${input.content})
+    insert into messages (conversation_id, client_id, role, content, attachments)
+    values (${input.conversationId}, ${clientId}, 'user', ${input.content}, ${JSON.stringify(input.attachments ?? [])})
     on conflict (conversation_id, client_id) do nothing
     returning id
   `) as unknown as { id: string }[];
@@ -202,7 +206,7 @@ export async function listMessages(conversationId: string): Promise<MessageRow[]
   const sql = await requireSql();
   return (await sql`
     select id, conversation_id, client_id, role, content, model,
-           memory_private_used, memory_shared_used, memory_knowledge_used, memory_provenance, created_at
+           memory_private_used, memory_shared_used, memory_knowledge_used, memory_provenance, attachments, created_at
     from messages where conversation_id = ${conversationId}
     order by created_at, id
   `) as unknown as MessageRow[];
@@ -254,7 +258,7 @@ export async function createPendingFixCard(input: {
   const rows = (await sql`
     insert into fix_cards (workspace_id, customer_id, conversation_id, issue_id, candidate_text)
     values (${input.workspaceId}, ${input.customerId}, ${input.conversationId}, ${input.issueId}, ${input.candidateText})
-    returning id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id
+    returning id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, reviewed_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id, superseded_by_fix_card_id
   `) as unknown as FixCardRow[];
   const row = rows[0];
   if (!row) throw new Error("fix card insert failed");
@@ -268,7 +272,7 @@ export async function getFixCardForWorkspace(
 ): Promise<FixCardRow | null> {
   const sql = await requireSql();
   const rows = (await sql`
-    select id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id
+    select id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, reviewed_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id, superseded_by_fix_card_id
     from fix_cards where id = ${fixCardId} and workspace_id = ${workspaceId} limit 1
   `) as unknown as FixCardRow[];
   return rows[0] ?? null;
@@ -281,13 +285,13 @@ export async function listFixCards(
   const sql = await requireSql();
   if (status) {
     return (await sql`
-      select id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id
+      select id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, reviewed_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id, superseded_by_fix_card_id
       from fix_cards where workspace_id = ${workspaceId} and status = ${status}
       order by created_at desc
     `) as unknown as FixCardRow[];
   }
   return (await sql`
-    select id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id
+    select id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, reviewed_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id, superseded_by_fix_card_id
     from fix_cards where workspace_id = ${workspaceId}
     order by created_at desc
   `) as unknown as FixCardRow[];
@@ -297,10 +301,14 @@ export async function markFixCardShared(
   fixCardId: string,
   blobId: string,
   reviewerId: string,
+  // The exact staff-reviewed text written to shared memory (undefined when
+  // the generated candidate was shared unedited).
+  reviewedText?: string,
 ): Promise<void> {
   const sql = await requireSql();
   await sql`
     update fix_cards set status = 'shared', walrus_blob_id = ${blobId},
+      reviewed_text = ${reviewedText ?? null},
       reviewed_at = now(), reviewed_by_user_id = ${reviewerId}
     where id = ${fixCardId}
   `;
@@ -321,6 +329,55 @@ export async function markFixCardKeptPrivate(
 export async function markFixCardFailed(fixCardId: string): Promise<void> {
   const sql = await requireSql();
   await sql`update fix_cards set status = 'failed' where id = ${fixCardId}`;
+}
+
+/**
+ * Shared-fix correction: insert the corrected version as a NEW row (status
+ * shared, own Walrus blob) and mark the old row superseded. The old blob id
+ * stays on the old row for audit; Walrus blobs are never deleted/edited.
+ */
+export async function createSharedFixCardRevision(input: {
+  workspaceId: string;
+  customerId: string;
+  conversationId: string | null;
+  issueId: string | null;
+  candidateText: string;
+  reviewedText: string;
+  blobId: string;
+  reviewerId: string;
+}): Promise<FixCardRow> {
+  const sql = await requireSql();
+  const rows = (await sql`
+    insert into fix_cards (workspace_id, customer_id, conversation_id, issue_id, candidate_text, reviewed_text, status, walrus_blob_id, reviewed_by_user_id)
+    values (${input.workspaceId}, ${input.customerId}, ${input.conversationId}, ${input.issueId}, ${input.candidateText}, ${input.reviewedText}, 'shared', ${input.blobId}, ${input.reviewerId})
+    returning id, workspace_id, customer_id, conversation_id, issue_id, candidate_text, reviewed_text, status, walrus_blob_id, created_at, reviewed_at, reviewed_by_user_id, superseded_by_fix_card_id
+  `) as unknown as FixCardRow[];
+  const row = rows[0];
+  if (!row) throw new Error("fix card revision insert failed");
+  return row;
+}
+
+export async function markFixCardSuperseded(
+  fixCardId: string,
+  supersededById: string,
+  reviewerId: string,
+): Promise<void> {
+  const sql = await requireSql();
+  await sql`
+    update fix_cards set status = 'superseded', superseded_by_fix_card_id = ${supersededById},
+      reviewed_at = now(), reviewed_by_user_id = ${reviewerId}
+    where id = ${fixCardId} and status = 'shared'
+  `;
+}
+
+/** Blob ids of superseded shared fixes in ONE workspace (deny-list for recall). */
+export async function listSupersededSharedBlobs(workspaceId: string): Promise<string[]> {
+  const sql = await requireSql();
+  const rows = (await sql`
+    select walrus_blob_id from fix_cards
+    where workspace_id = ${workspaceId} and status = 'superseded' and walrus_blob_id is not null
+  `) as unknown as { walrus_blob_id: string | null }[];
+  return rows.map((r) => r.walrus_blob_id).filter((b): b is string => !!b);
 }
 
 // ---- Staff-scoped console reads (all keyed by workspace; callers must pass

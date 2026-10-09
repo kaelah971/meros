@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateJson, GeminiNotConfiguredError } from "@/lib/gemini";
+import { generateJson } from "@/lib/gemini";
 import { previewUserId } from "@/lib/identity";
 import { identityError, resolveProductIdentity } from "@/lib/product-identity";
 import type { AuthenticatedCustomer } from "@/lib/tenant-store";
@@ -81,13 +81,19 @@ export async function POST(req: Request) {
       ].join("\n\n"),
     });
   } catch (e) {
-    if (e instanceof GeminiNotConfiguredError) {
-      return NextResponse.json({ ok: false, error: e.message }, { status: 503 });
-    }
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "extraction failed" },
-      { status: 502 },
-    );
+    // Extraction runs before any Walrus write. A failure here means no
+    // private write was attempted, so report a skipped capture (ok:true,
+    // zero facts) rather than a failed save. The chat answer already
+    // succeeded; the client stays silent on skipped captures.
+    const reason = e instanceof Error ? e.message : "extraction failed";
+    console.log(`[capture] extraction unavailable — skipped (${reason})`);
+    return NextResponse.json({
+      ok: true,
+      facts: [],
+      skipped: "extraction",
+      note: "extraction unavailable — skipped",
+      userPreview: previewUserId(tenant.customerId),
+    });
   }
 
   const facts: ExtractedFact[] = dropKnownFacts(validateExtractedFacts(raw), knownTexts);

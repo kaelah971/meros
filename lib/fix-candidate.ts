@@ -11,6 +11,7 @@ Rules:
 - Symptom: the observable problem the user reported (one line).
 - Cause: the diagnosed cause in one line. If it was inferred rather than explicitly proven, express the uncertainty inline (e.g. "The CSV likely uses …") — never prefix with "Likely cause:".
 - Resolution: ONLY the specific action the user explicitly confirmed as successful, described in their terms. Describe what THEY did — never substitute an alternative technique (no find-and-replace, no text-editor workflows, no alternate troubleshooting paths) unless the user confirmed THAT action worked. Do not "improve" the fix with extra steps.
+- Symptom/Cause grounding: include ONLY facts the customer stated or that appear in quoted error text. NEVER restate an assistant hypothesis, guess, or inferred explanation (e.g. locale/regional settings, or any "why" the customer did not state) as an established fact. When the underlying why is unconfirmed, state only the observable mechanism. Customer confirmation outranks any earlier assistant speculation.
 - Each field 10-400 chars, plain language, no markdown.
 - Reusable knowledge ONLY. NEVER include: user names, access codes, namespaces, emails, phones, wallet/account/object IDs, device identifiers, secrets, or unrelated transcript content. Omit private profile details unless strictly necessary for the fix.
 - When the user plainly states an action worked (e.g. "I re-exported … and it works now"), that IS an explicitly confirmed successful action even if the wording is casual — extract it, do not return none.
@@ -72,7 +73,13 @@ export async function generateFixCandidate(transcript: ChatTurn[]): Promise<FixC
   const gate = validateSharedCandidate(text, {
     confirmation: userTexts.join("\n"),
     context: allTexts.join("\n"),
+    // Customer-provided evidence only: assistant turns are excluded so an
+    // assistant hypothesis can never ground itself into Symptom/Cause.
+    evidence: userTexts.join("\n"),
   });
   if (!gate.ok) return { status: "error", error: gate.error ?? "candidate rejected" };
-  return { status: "ready", text };
+  // Evidence grounding may have dropped unsupported clauses (e.g. an
+  // assistant-hypothesized cause): persist the sanitized version, never the
+  // raw model text.
+  return { status: "ready", text: gate.sanitized ?? text };
 }

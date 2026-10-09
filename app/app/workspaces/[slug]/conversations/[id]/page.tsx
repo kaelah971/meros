@@ -9,6 +9,7 @@ import {
   listMessages,
 } from "@/lib/support-ops";
 import { shortBlob } from "@/lib/evidence";
+import { formatUtc } from "@/lib/datetime";
 import { StatusPill } from "@/components/meros-ui";
 
 /** Staff conversation detail: persisted thread + provenance + linked Fix Card. */
@@ -37,7 +38,7 @@ export default async function ConversationDetail({
       <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
         <span>{contact.displayName ?? contact.email ?? "Customer"}</span>
         <StatusPill status={summary.status} />
-        {summary.resolved_at ? <span>resolved {new Date(summary.resolved_at).toLocaleString()}</span> : ""}
+        {summary.resolved_at ? <span>resolved {formatUtc(summary.resolved_at)}</span> : ""}
       </p>
       <div className="mt-3 space-y-2">
         {messages.map((m) => (

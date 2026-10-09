@@ -2,6 +2,7 @@ import "server-only";
 import { GoogleGenAI } from "@google/genai";
 import { isGeminiConfigured } from "./env";
 import { isRetryable, settleWithTimeout, withRetry } from "./retry";
+import { buildAttachmentParts, type AttachmentPayload } from "./attachments";
 
 export { withRetry as withGeminiRetry };
 
@@ -99,19 +100,27 @@ function getClient(): GoogleGenAI {
   });
 }
 
-/** Server-side model call. Throws honestly on missing key or empty answer. */
+/** Server-side model call. Throws honestly on missing key or empty answer.
+ *  Attachments (request-scoped raw bytes) ride as native multimodal parts
+ *  on the CURRENT user turn only — labeled user data, never instructions,
+ *  never persisted. */
 export async function generateSupportAnswer(input: {
   systemInstruction: string;
   history: ChatTurn[];
   message: string;
+  attachments?: AttachmentPayload[];
 }): Promise<string> {
   const ai = getClient();
+  const currentParts: { text?: string; inlineData?: { mimeType: string; data: string } }[] = [
+    { text: input.message },
+    ...buildAttachmentParts(input.attachments ?? []),
+  ];
   const contents = [
     ...input.history.map((h) => ({
       role: h.role === "assistant" ? ("model" as const) : ("user" as const),
       parts: [{ text: h.text }],
     })),
-    { role: "user" as const, parts: [{ text: input.message }] },
+    { role: "user" as const, parts: currentParts },
   ];
   const settled = await settleWithTimeout(
     generateWithFallback((model) =>

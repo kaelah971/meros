@@ -193,6 +193,19 @@ create table if not exists fix_cards (
 create index if not exists fix_cards_workspace_idx
   on fix_cards (workspace_id, status, created_at desc);
 
+-- Staff edit-before-share: the exact reviewed Symptom/Cause/Resolution text
+-- written to shared memory (null when the generated candidate was shared
+-- unedited). Idempotent: safe to re-run.
+alter table if exists fix_cards add column if not exists reviewed_text text;
+
+-- Shared-fix correction/supersession: a corrected version is a NEW row with
+-- its own Walrus blob; the old row is marked superseded (never deleted —
+-- Walrus blobs are immutable and the old blob stays for audit). Idempotent.
+alter table if exists fix_cards drop constraint if exists fix_cards_status_check;
+alter table if exists fix_cards add constraint fix_cards_status_check
+  check (status in ('pending_review', 'shared', 'kept_private', 'failed', 'superseded'));
+alter table if exists fix_cards add column if not exists superseded_by_fix_card_id uuid references fix_cards(id) on delete set null;
+
 -- P9 onboarding: optional company description on organizations.
 -- Idempotent: safe to re-run against databases created before P9.
 alter table if exists organizations add column if not exists description text;
@@ -200,6 +213,11 @@ alter table if exists organizations add column if not exists description text;
 -- P9 chat: per-answer knowledge-plane flag for history fidelity.
 -- Idempotent: safe to re-run.
 alter table if exists messages add column if not exists memory_knowledge_used boolean not null default false;
+
+-- Multimodal composer: per-message attachment METADATA only (filename,
+-- media type, kind). Raw bytes are request-scoped and never persisted.
+-- Idempotent: safe to re-run.
+alter table if exists messages add column if not exists attachments jsonb not null default '[]';
 
 -- P9 workspace product knowledge. Neon is canonical source + metadata
 -- (titles, URLs, statuses, blob refs). Walrus holds ONLY the semantic
